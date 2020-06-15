@@ -5,6 +5,7 @@ Contents:
 1. [Topics](#topics)
 1. [Examples](#examples)
 1. [Homework assignments](#homework-assignments)
+1. [Exercise questions](#exercise-questions)
 1. [Templates](#templates)
 
 ---
@@ -35,9 +36,9 @@ Week 3:
 - **Tuesday June 16, 19:00:** [Homework assignment 2](hw2/assignment.md) due
 - **Wednesday June 17:** Pre-recorded lectures about *description logics and OWL* available on Canvas
 - **Thursday June 18, 11:00–12:00:** Online question answering session
-- **Friday June 19, 19:00:** [Homework assignment 3](hw3/assignment.md) due
 
 Week 4:
+- **Monday June 22, 19:00:** [Homework assignment 3](hw3/assignment.md) due
 - **Monday June 22, 19:00:** Pass/fail quiz on reading material about *description logics and OWL* due
 - **Tuesday June 23, 11:00–12:00:** Online question answering session
 - **Wednesday June 24, 19:00:** Homework assignment 4 due
@@ -140,6 +141,16 @@ Here are some Python notebooks that illustrate how to use various of the techniq
 - [Assignment 2](hw2/assignment.md)
 - [Assignment 3](hw3/assignment.md) (programming)
 - Assignment 4
+  - *Coming..*
+
+---
+
+## Exercise questions
+
+- [Exercise questions related to *problem solving and search*](exercises/module1.md)
+- [Exercise questions related to *non-monotonic reasoning and answer set programming*](exercises/module2.md)
+- [Exercise questions related to *automated planning*](exercises/module3.md)
+- Exercise questions related to *description logics and OWL*
   - *Coming..*
 
 ---
