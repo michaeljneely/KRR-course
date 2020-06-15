@@ -48,7 +48,7 @@ Consider defaults of the following form: `P : C / C`, where both `P` and `C` are
 
 For example, the following specifies a PDFN default theory `(W,D)` (where logical conjunction is written as `&` and negation as `~`):
 ```
-W = p & q
+W = { p, q }
 D = {
   q : r / r,
   p & r : ~s & q / ~s & q
@@ -98,13 +98,36 @@ n { item(1..u) } m.
 
 In this assignment, you will show that disjunction in the head of rules is a 'true' language extension for basic answer set programming. In other words, you will show that answer set programs with disjunction in the head of rules (e.g., with rules of the form `a ; b :- c.`) are more powerful than answer set programs without disjunction in the head of rules.
 
+You will do so by showing how to encode the problem SAT-UNSAT
+into the problem of finding an answer set of a program with disjunction in the head of rules.
+In the problem SAT-UNSAT, the input that you are given are
+two propositional CNF formulas &varphi;<sub>1</sub>
+and &varphi;<sub>2</sub>. The task is to decide if it is both
+true that (1) &varphi;<sub>1</sub> is satisfiable
+and &varphi;<sub>2</sub> is unsatisfiable.
+
 *Assignment:*
-Give an example of a problem that (a) can be encoded effectively as the problem of finding an answer set of a program with disjunction in the head of rules, but that (b) cannot be encoded effectively as the problem of finding  an answer set of a program without disjunction in the head of rules.
+Show how the following problem SAT-UNSAT can be encoded effectively as the problem of finding an answer set of a program with disjunction in the head of rules.
+That is, describe how&mdash;given any two propositional CNF
+formulas &varphi;<sub>1</sub>, &varphi;<sub>2</sub>&mdash;one
+can effectively construct a logic program *P*
+with disjunction in the head of rules, so that *P* has at
+least one answer set if and only if both
+(1) &varphi;<sub>1</sub> is **satisfiable** and
+(2) &varphi;<sub>2</sub> is **unsatisfiable**.
 
 *Remarks:*
-- Explain clearly (i) what the problem is, (ii) how you can encode the problem effectively into answer set programming with disjunction in the head of rules, and (iii) why this cannot be encoded effectively into answer set programming without disjunction in the head of rules.
+- Explain clearly how&mdash;for each &varphi;<sub>1</sub>
+and &varphi;<sub>2</sub>&mdash; the encoding into answer set programming with disjunction in the head of rules works.
+That is, (i) describe clearly what the resulting logic program
+looks like (as a function of &varphi;<sub>1</sub>
+and &varphi;<sub>2</sub>), (ii) explain why the resulting logic
+program has an answer set if and only if both
+&varphi;<sub>1</sub> is satisfiable and &varphi;<sub>2</sub>
+is unsatisfiable, and (iii) explain why this encoding
+can be done effectively.
 - With *effectively* we mean that there is, say, no exponential blow-up in the answer set program and that the encoding does not take exponential time to compute.
-- For this assignment, you may assume that the problem of deciding if a propositional logic formula is satisfiable (i.e., the SAT problem) takes exponential time. Note, however, that the SAT problem can be effectively encoded as an answer set program without disjunction in the heads of rules, so the SAT problem itself is not a good answer for this assignment.
+- The problem SAT-UNSAT cannot be encoded effectively as the problem of finding an answer set of a program without disjunction in the head of rules&mdash;under some widely believed complexity-theoretic assumptions. But you don't have to show this.
 
 *Hints:*
 - Search the web for an ASP modelling technique called *saturation*.
@@ -114,3 +137,10 @@ Give an example of a problem that (a) can be encoded effectively as the problem 
 ## Evaluation
 
 Each of the assignments (1–5) is worth 2 points, yielding a total of 10 points.
+
+For answering these questions, aim at producing 3 pages at most
+(using [this template](../templates/homework.tex))&mdash;for all five questions combined.
+It is doable to provide correct and detailed enough answers within this space bound,
+and this space bound should give you some idea of how lengthy/detailed
+your answers should be.
+It is also definitely doable to do it in less than 3 pages.
