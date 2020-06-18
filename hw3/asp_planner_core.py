@@ -31,6 +31,8 @@ def init_sequential_planning_program() -> str:
        https://arxiv.org/pdf/1812.04491.pdf) and explicitly declared in the plasp repository:
        https://github.com/potassco/plasp/blob/master/encodings/sequential-horizon.lp
 
+       All credit goes to the plasp authors. My only contribution is explaining each group of statements in detail
+
     :return: Initialized ASP sequential planning program, ready to be extended with facts from a planning problem
     :rtype: str
     """
@@ -40,24 +42,29 @@ def init_sequential_planning_program() -> str:
     # Variables contain values, which may be True or False
     asp_planning_program += 'boolean(true).\n'
     asp_planning_program += 'boolean(false).\n'
+    # The contains/2 atom captures this relationship
     asp_planning_program += 'contains(X, value(X, B)) :- variable(X), boolean(B).\n'
 
     # The initial state is at time t=0
+    # The holds/3 atom captures the value of a variable at a particular timestep t >= 0
     asp_planning_program += 'holds(Variable, Value, 0) :- initialState(Variable, Value).\n'
 
     # Closed World Assumption (CWA): Any ground atoms in the initial state which are not explicitly declared True
     # are set to False
     asp_planning_program += 'initialState(X, value(X, false)) :- variable(X), not initialState(X, value(X, true)).\n'
 
-    # This is a sequential encoding: only one action may occur at a particular timestep. Also, actions may only
-    # occur AFTER the initial state.
+    # The solution to the planning problem is extracted from occurs/2 atoms
+    # This is a sequential encoding: only one action may occur at a particular timestep
+    # Also, actions may only occur AFTER the initial state.
     asp_planning_program += '1 {occurs(Action, T) : action(Action)} 1 :- time(T), T > 0.\n'
 
     # An action may not occur unless its preconditions are met (i.e., for an action to occur at time t,
-    # the variable must hold the value specified in the precondition at time t-1)
-    asp_planning_program += ':- occurs(Action, T), precondition(Action, Variable, Value), not holds(Variable, Value, T - 1).\n'
+    # all applicable variables must hold the values specified in the precondition at time t-1)
+    asp_planning_program += '''
+        :- occurs(Action, T), precondition(Action, Variable, Value), not holds(Variable, Value, T - 1).\n'''
 
-    # 
+    # Capture the effects of an action: at time t, the value of a variable is changed to the one specified in the
+    # action's postcondition as long as the action was valid (see previous statement).
     asp_planning_program += '''
         caused(Variable, Value, T) :-
             occurs(Action, T),
@@ -65,9 +72,13 @@ def init_sequential_planning_program() -> str:
             holds(VariablePre, ValuePre, T - 1) : precondition(Effect, VariablePre, ValuePre).\n
     '''
 
-    #
+    # A variable is considered modified if its value was changed by an action
     asp_planning_program += 'modified(Variable, T) :- caused(Variable, Value, T).\n'
+
+    # The so-called 'inertia' statements. At a particular timestep, the value of a variable was either:
+    # 1) Modified and therefore holds a new value
     asp_planning_program += 'holds(Variable, Value, T) :- caused(Variable, Value, T).\n'
+    # 2) Was not modified and therefore continues to hold its previous value
     asp_planning_program += 'holds(variable(V), Value, T) :- holds(variable(V), Value, T - 1), not modified(variable(V), T), time(T).\n'
 
     # The goal is not met unless the appropriate variables hold their goal values at the final timestep
