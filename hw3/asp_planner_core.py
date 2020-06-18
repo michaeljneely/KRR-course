@@ -38,7 +38,6 @@ def solve_planning_problem_using_ASP(planning_problem,t_max):
     goal_string = ''
 
     ###
-    # variable(variable(("at-airport", X1, X2))) :- has(X1, type("object")), has(X2, type("object")).
     seen_predicates = set()
     seen_constants = set()
 
@@ -60,29 +59,26 @@ def solve_planning_problem_using_ASP(planning_problem,t_max):
                 seen_constants.add(arg)
     
     for goal in planning_problem.goals:
+
+        neg = False
+
+        if goal.op == '~':
+            neg = True
+            goal = Expr(goal.args[0].op, *goal.args[0].args)
+
         for arg in goal.args:
-            if arg not in seen_constants:
+            if arg not in seen_constants and str(arg)[0].isupper():
                 seen_constants.add(arg)
-        constants  = ', '.join([f'constant("{str(arg)}")' for arg in goal.args])
-        # for arg in goal.args:
-        goal_variable = f'variable(("{goal.op}", {constants}))'
-        goal_value = f'value(variable(("{goal.op}", {constants})), true)'
-        goal_string += f'goal({goal_variable}, {goal_value}).\n'
+        constants  = ', '.join([f'constant("{str(arg)}")' for arg in goal.args if str(arg)[0].isupper()])
+        if constants:
+            goal_variable = f'variable(("{goal.op}", {constants}))'
+            goal_value = f'value(variable(("{goal.op}", {constants})), {"false" if neg else "true"})'
+            goal_string += f'goal({goal_variable}, {goal_value}).\n'
 
     for constant in seen_constants:
         constants_string += f'constant(constant("{constant}")).\n'
         constants_string += f'has(constant("{constant}"), type("object")).\n'
 
-# action(action(("load", X1, X2, X3))) :- has(X1, type("object")), has(X2, type("object")), has(X3, type("object")).
-# precondition(action(("load", X1, X2, X3)), variable(("at-airport", X1, X3)), value(variable(("at-airport", X1, X3)), true)) :- action(action(("load", X1, X2, X3))).
-# precondition(action(("load", X1, X2, X3)), variable(("at-airport", X2, X3)), value(variable(("at-airport", X2, X3)), true)) :- action(action(("load", X1, X2, X3))).
-# precondition(action(("load", X1, X2, X3)), variable(("out", X1)), value(variable(("out", X1)), true)) :- action(action(("load", X1, X2, X3))).
-# precondition(action(("load", X1, X2, X3)), variable(("plane", X2)), value(variable(("plane", X2)), true)) :- action(action(("load", X1, X2, X3))).
-# precondition(action(("load", X1, X2, X3)), variable(("cargo", X1)), value(variable(("cargo", X1)), true)) :- action(action(("load", X1, X2, X3))).
-# precondition(action(("load", X1, X2, X3)), variable(("airport", X3)), value(variable(("airport", X3)), true)) :- action(action(("load", X1, X2, X3))).
-# postcondition(action(("load", X1, X2, X3)), effect(unconditional), variable(("at-airport", X1, X3)), value(variable(("at-airport", X1, X3)), false)) :- action(action(("load", X1, X2, X3))).
-# postcondition(action(("load", X1, X2, X3)), effect(unconditional), variable(("in", X1, X2)), value(variable(("in", X1, X2)), true)) :- action(action(("load", X1, X2, X3))).
-# postcondition(action(("load", X1, X2, X3)), effect(unconditional), variable(("out", X1)), value(variable(("out", X1)), false)) :- action(action(("load", X1, X2, X3))).
     for action in planning_problem.actions:
         arg_map = {}
         num_arguments = len(action.args)
@@ -207,7 +203,7 @@ def solve_planning_problem_using_ASP(planning_problem,t_max):
 
         #show occurs/2.
     '''
-    print(asp_program)
+
     solution = []
 
     def on_model(model):
@@ -232,14 +228,6 @@ def solve_planning_problem_using_ASP(planning_problem,t_max):
 
         if answer.satisfiable:
             return solution
+
     return None
-    # return [
-    #     'Load(C1, P1, SFO)',
-    #     'Fly(P1, SFO, JFK)',
-    #     'Unload(C1, P1, JFK)',
-    #     'Load(C2, P2, JFK)',
-    #     'Fly(P2, JFK, SFO)',
-    #     'Unload(C2, P2, SFO)'
-    # ]
-    # print(asp_program)
-    # return None
+
