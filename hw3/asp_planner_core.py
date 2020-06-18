@@ -1,52 +1,90 @@
-from planning import PlanningProblem, Action, Expr, expr
-import planning
-import re
-import clingo
+"""
+    An algorithm to solve sequential planning problems (specified in a format unique to this assignment) with Clingo
+
+    Author: Michael Neely
+    Student ID: 12547190
+
+    References:
+        - plasp 3: Towards Effective ASP Planning (Dimopoulos et al. 2018)
+            https://arxiv.org/pdf/1812.04491.pdf
+        - Potassco plasp
+            https://github.com/potassco/plasp/
+"""
+
+# Standard library
 import collections
+import re
+from typing import List, Union
 
-def extract_step(atom):
-    text = str(atom)
-    matches=re.findall(r'\"(.+?)\"',text)
-    args = ",".join(matches[1:])
-    return f'{matches[0]}({args})'
+# Local imports
+from planning import PlanningProblem, Action, Expr, expr
 
-def solve_planning_problem_using_ASP(planning_problem,t_max):
+# External imports
+import clingo
+
+###
+### Helper functions
+###
+def init_sequential_planning_program() -> str:
+    """Initialize an ASP sequential planning program with a minimized version of the sequential horizon meta-encoding
+       as detailed in "plasp 3: Towards Effective ASP Planning" (Dimopoulos et al. 2018 -
+       https://arxiv.org/pdf/1812.04491.pdf) and explicitly declared in the plasp repository:
+       https://github.com/potassco/plasp/blob/master/encodings/sequential-horizon.lp
+
+    :return: Initialized ASP sequential planning program, ready to be extended with facts from a planning problem
+    :rtype: str
     """
-    If there is a plan of length at most t_max that achieves the goals of a given planning problem,
-    starting from the initial state in the planning problem, returns such a plan of minimal length.
-    If no such plan exists of length at most t_max, returns None.
+    # We reason about the state of the world at particular time steps: [0, t_max]
+    asp_planning_program = 'time(0..horizon).\n'
 
-    Finding a shortest plan is done by encoding the problem into ASP, calling clingo to find an
-    optimized answer set of the constructed logic program, and extracting a shortest plan from this
-    optimized answer set.
+    # Variables contain values, which may be True or False
+    asp_planning_program += 'boolean(true).\n'
+    asp_planning_program += 'boolean(false).\n'
+    asp_planning_program += 'contains(X, value(X, B)) :- variable(X), boolean(B).\n'
 
-    Parameters:
-        planning_problem (PlanningProblem): Planning problem for which a shortest plan is to be found.
-        t_max (int): The upper bound on the length of plans to consider.
+    # The initial state is at time t=0
+    asp_planning_program += 'holds(Variable, Value, 0) :- initialState(Variable, Value).\n'
 
-    Returns:
-        (list(Expr)): A list of expressions (each of which specifies a ground action) that composes
-        a shortest plan for planning_problem (if some plan of length at most t_max exists),
-        and None otherwise.
+    # Closed World Assumption (CWA): Any ground atoms in the initial state which are not explicitly declared True
+    # are set to False
+    asp_planning_program += 'initialState(X, value(X, false)) :- variable(X), not initialState(X, value(X, true)).\n'
+
+    # This is a sequential encoding: only one action may occur at a particular timestep. Also, actions may only
+    # occur AFTER the initial state.
+    asp_planning_program += '1 {occurs(Action, T) : action(Action)} 1 :- time(T), T > 0.\n'
+
+    # An action may not occur unless its preconditions are met (i.e., for an action to occur at time t,
+    # the variable must hold the value specified in the precondition at time t-1)
+    asp_planning_program += ':- occurs(Action, T), precondition(Action, Variable, Value), not holds(Variable, Value, T - 1).\n'
+
+    # 
+    asp_planning_program += '''
+        caused(Variable, Value, T) :-
+            occurs(Action, T),
+            postcondition(Action, Effect, Variable, Value),
+            holds(VariablePre, ValuePre, T - 1) : precondition(Effect, VariablePre, ValuePre).\n
+    '''
+
+    #
+    asp_planning_program += 'modified(Variable, T) :- caused(Variable, Value, T).\n'
+    asp_planning_program += 'holds(Variable, Value, T) :- caused(Variable, Value, T).\n'
+    asp_planning_program += 'holds(variable(V), Value, T) :- holds(variable(V), Value, T - 1), not modified(variable(V), T), time(T).\n'
+
+    # The goal is not met unless the appropriate variables hold their goal values at the final timestep
+    asp_planning_program += ':- goal(Variable, Value), not holds(Variable, Value, horizon).\n'
+
+    return asp_planning_program
+
+
+def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
+    """Translate a pseudo-PDDL description to a collection of ASP facts per an approach similar to 
+       plasp translate (https://github.com/potassco/plasp)
+
+    :param planning_problem: A description of the initial state, action(s), and goal(s) of a planning problem
+    :type planning_problem: PlanningProblem
+    :return: A single string containing the ASP fact translations
+    :rtype: str
     """
-    # Solution Notes
-    #
-    # "A scholar knows not to waste time rediscovering information already known" - Brandon Sanderson, The Way of Kings
-    #
-    # The goal is to convert a pseudo-PDDL description to ASP facts and then solve the planning problem.
-    # A solution is found with a meta-encoding. "plasp 3: Towards Effective ASP Planning" (Dimopoulos et al. 2018 -
-    # https://arxiv.org/pdf/1812.04491.pdf) details sequential and parallel meta-encodings, the source code for which
-    # is available in the Plasp repository (https://github.com/potassco/plasp). The paper specifically refers to the
-    # strips-incremental.lp encoding, but the authors also include a simplified sequential meta-encoding in
-    # sequential-horizon.lp. This simplified encoding yields a plan as a sequence of time-stamped actions if and only
-    # if the plan's length matches the externally defined horizon constant.
-    #
-    # At a high-level, my solution:
-    #   1. Converts the pseudo-PDDL description to ASP facts in a manner similar to the 'translate' feature of plasp
-    #   2. Adds a minimal version of the sequential-horizon meta-encoding
-    #   3. Finds the optimal (shortest) plan by progressively incrementing the horizon from t=[1, t_max] (inclusive)
-    #   4. Returns the optimal plan or None if no solution is found in the range [1, t_max]
-
     variables_string = ''
     constants_string = ''
     initial_state_string = ''
@@ -147,18 +185,14 @@ def solve_planning_problem_using_ASP(planning_problem,t_max):
             postcondition_variable = f'variable(("{postcondition.op}", {", ".join(action_arg_map[str(arg)] for arg in postcondition.args)}))'
             postcondition_value = f'value(variable(("{postcondition.op}", {", ".join(action_arg_map[str(arg)] for arg in postcondition.args)})), {"false" if neg else "true"})'
             actions_string += f'postcondition({postcondition_action}, effect(unconditional), {postcondition_variable}, {postcondition_value}) :- action({postcondition_action}).\n'
-                
-    asp_program = f'''
-        % utils
-        boolean(true).
-        boolean(false).
+
+    facts = f'''
 
         % types
         type(type("object")).
 
         % variables
         {variables_string}
-        contains(X, value(X, B)) :- variable(X), boolean(B).
 
         % actions
         {actions_string}
@@ -168,82 +202,99 @@ def solve_planning_problem_using_ASP(planning_problem,t_max):
 
         % initial state
         {initial_state_string}
-        initialState(X, value(X, false)) :- variable(X), not initialState(X, value(X, true)).
 
         % goal
         {goal_string}
 
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        % Horizon, must be defined externally
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        #show occurs/2.'''
+    return facts
 
-        time(0..horizon).
 
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        % Establish initial state
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+def plan_step_to_expr(atom: clingo.Symbol) -> str:
+    """Converts a plan step 'occurs' atom (see above functions) to a string expression expected by the plan
+       verification function of this assignment. E.g.:
+       occurs(action(("Go",constant("L1"),constant("L3"))),1) --> Go(L1, L3)
 
-        holds(Variable, Value, 0) :- initialState(Variable, Value).
+    :param atom: An 'occurs' atom
+    :type atom: clingo.Symbol
+    :return: The string expression of the atom
+    :rtype: str
+    """
+    # The predicate and its arguments are double-quoted. Simply extract them
+    matches = re.findall(r'\"(.+?)\"', str(atom))
+    predicate = matches[0]
+    args = ",".join(matches[1:])
+    return f'{predicate}({args})'
 
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        % Perform actions
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-        1 {{occurs(Action, T) : action(Action)}} 1 :- time(T), T > 0.
+###
+### Core Algorithm
+###
+def solve_planning_problem_using_ASP(planning_problem: PlanningProblem, t_max: int) -> Union[List[str], None]:
+    """If there is a plan of length at most t_max that achieves the goals of a given planning problem,
+    starting from the initial state in the planning problem, returns such a plan of minimal length.
+    If no such plan exists of length at most t_max, returns None.
 
-        % Check preconditions
-        :- occurs(Action, T), precondition(Action, Variable, Value), not holds(Variable, Value, T - 1).
+    :param planning_problem: Planning problem for which a shortest plan is to be found
+    :type planning_problem: PlanningProblem
+    :param t_max: The upper bound on the length of plans to consider
+    :type t_max: int
+    :return: A list of string representation of expressions that composes a shortest plan for planning_problem
+             (if some plan of length at most t_max exists), and None otherwise.
+    :rtype: List[str]
+    """    
+    # Solution Notes
+    #
+    # "A scholar knows not to waste time rediscovering information already known" - Brandon Sanderson, The Way of Kings
+    #
+    # The goal is to convert a pseudo-PDDL description to ASP facts and then solve the planning problem.
+    # A solution is found with a meta-encoding. "plasp 3: Towards Effective ASP Planning" (Dimopoulos et al. 2018 -
+    # https://arxiv.org/pdf/1812.04491.pdf) details sequential and parallel meta-encodings, the source code for which
+    # is available in the Plasp repository (https://github.com/potassco/plasp). The paper specifically refers to the
+    # strips-incremental.lp encoding, but the authors also include a simplified sequential meta-encoding in
+    # sequential-horizon.lp. This simplified encoding yields a plan as a sequence of time-stamped actions if and only
+    # if the plan's length matches the externally defined horizon constant.
+    #
+    # At a high-level, my solution:
+    #   1. Adds (and explains) a minimal version of plasp's sequential-horizon meta-encoding
+    #   2. Converts the pseudo-PDDL description to ASP facts in a manner similar to the 'translate' feature of plasp
+    #   3. Finds the optimal (shortest) plan by progressively incrementing the horizon from t = [1, t_max] (inclusive)
+    #   4. Returns the optimal plan or None if no solution is found in the range [1, t_max]
 
-        % Apply effects
-        caused(Variable, Value, T) :-
-            occurs(Action, T),
-            postcondition(Action, Effect, Variable, Value),
-            holds(VariablePre, ValuePre, T - 1) : precondition(Effect, VariablePre, ValuePre).
+    # Part 1: Add sequential horizon meta-encoding
+    sequential_encoding = init_sequential_planning_program()
 
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        % Inertia rules
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Part 2: Add ASP facts from the given planning_program
+    facts = planning_problem_to_asp_facts(planning_problem)
 
-        modified(Variable, T) :- caused(Variable, Value, T).
+    asp_planning_program = sequential_encoding + facts
 
-        holds(Variable, Value, T) :- caused(Variable, Value, T).
-        holds(variable(V), Value, T) :- holds(variable(V), Value, T - 1), not modified(variable(V), T), time(T).
-
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        % Verify that goal is met
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-        :- goal(Variable, Value), not holds(Variable, Value, horizon).
-
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-        #show occurs/2.
-    '''
-
+    # If an answer set is found, build the solution by extracting the occurs atoms, sorting them by timestep, and
+    # converting them to string expressions
     solution = []
 
     def on_model(model):
         nonlocal solution
         steps = [atom for atom in model.symbols(atoms=True) if atom.name == 'occurs']
+        # each occurs atom is a tuple of (action, timestep)
         sorted_steps = sorted(steps, key=lambda tup: tup.arguments[1])
-        solution = list(map(extract_step, sorted_steps))
+        solution = list(map(plan_step_to_expr, sorted_steps))
 
+    # Part 3: Find the shortest plan by checking for answer sets starting at t=1
     for t in range(1, t_max + 1):
-        t_program = f'''
 
-        #const horizon={t}.
+        time_bounded_program = f'#const horizon={t}.\n{asp_planning_program}'''
 
-        {asp_program}
-        '''
         # Encode and solve
         control = clingo.Control()
-        control.add("base", [], t_program)
+        control.add("base", [], time_bounded_program)
         control.ground([("base", [])])
         control.configuration.solve.models = 1 # we only need one feasible solution
         answer = control.solve(on_model=on_model)
 
+        # Part 4 option 1: An optimal solution was found
         if answer.satisfiable:
             return solution
 
+    # Part 4 option 2: Alas, no solution with length <= t_max was found
     return None
-
