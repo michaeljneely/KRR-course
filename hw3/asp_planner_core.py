@@ -69,8 +69,7 @@ def init_sequential_planning_program() -> str:
         caused(Variable, Value, T) :-
             occurs(Action, T),
             postcondition(Action, Effect, Variable, Value),
-            holds(VariablePre, ValuePre, T - 1) : precondition(Effect, VariablePre, ValuePre).\n
-    '''
+            holds(VariablePre, ValuePre, T - 1) : precondition(Effect, VariablePre, ValuePre).\n'''
 
     # A variable is considered modified if its value was changed by an action
     asp_planning_program += 'modified(Variable, T) :- caused(Variable, Value, T).\n'
@@ -96,6 +95,9 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
     :return: A single string containing the ASP fact translations
     :rtype: str
     """
+
+    # Step 1: 
+
     variables_string = ''
     constants_string = ''
     initial_state_string = ''
@@ -110,7 +112,7 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
         if predicate.op not in seen_predicates:
             num_arguments = len(predicate.args)
             predicate_variables = ', '.join([f'X{i}' for i in range(1, num_arguments +1)])
-            predicate_types = ', '.join([f'has(X{i}, type("object"))' for i in range(1, num_arguments +1)])
+            predicate_types = ', '.join([f'has(X{i})' for i in range(1, num_arguments +1)])
             variables_string += f'variable(variable("{predicate.op}", {predicate_variables})) :- {predicate_types}.\n'
             seen_predicates.add(predicate.op)
 
@@ -142,7 +144,7 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
 
     for constant in seen_constants:
         constants_string += f'constant(constant("{constant}")).\n'
-        constants_string += f'has(constant("{constant}"), type("object")).\n'
+        constants_string += f'has(constant("{constant}")).\n'
 
     for action in planning_problem.actions:
         arg_map = {}
@@ -151,9 +153,8 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
             arg_map[str(arg)] = f'X{i+1}'
 
         action_variables = ', '.join(arg_map.values())
-        action_types = ', '.join([f'has({k}, type("object"))' for k in arg_map.values()])
+        action_types = ', '.join([f'has({k})' for k in arg_map.values()])
         actions_string += f'action(action(("{action.name}", {action_variables}))) :- {action_types}.\n'
-        
         for precondition in action.precond:
 
             neg = False
@@ -198,10 +199,6 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
             actions_string += f'postcondition({postcondition_action}, effect(unconditional), {postcondition_variable}, {postcondition_value}) :- action({postcondition_action}).\n'
 
     facts = f'''
-
-        % types
-        type(type("object")).
-
         % variables
         {variables_string}
 
@@ -280,7 +277,8 @@ def solve_planning_problem_using_ASP(planning_problem: PlanningProblem, t_max: i
 
     asp_planning_program = sequential_encoding + facts
 
-    # If an answer set is found, build the solution by extracting the occurs atoms, sorting them by timestep, and
+    print(asp_planning_program)
+    # If an answer set is found, build the solution by extracting the occurs/2 atoms, sorting them by timestep, and
     # converting them to string expressions
     solution = []
 
