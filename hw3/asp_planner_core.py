@@ -20,8 +20,6 @@ def solve_planning_problem_using_ASP(planning_problem,t_max):
     optimized answer set of the constructed logic program, and extracting a shortest plan from this
     optimized answer set.
 
-    NOTE: still needs to be implemented. Currently returns None for every input.
-
     Parameters:
         planning_problem (PlanningProblem): Planning problem for which a shortest plan is to be found.
         t_max (int): The upper bound on the length of plans to consider.
@@ -31,6 +29,24 @@ def solve_planning_problem_using_ASP(planning_problem,t_max):
         a shortest plan for planning_problem (if some plan of length at most t_max exists),
         and None otherwise.
     """
+    # Solution Notes
+    #
+    # "A scholar knows not to waste time rediscovering information already known" - Brandon Sanderson, The Way of Kings
+    #
+    # The goal is to convert a pseudo-PDDL description to ASP facts and then solve the planning problem.
+    # A solution is found with a meta-encoding. "plasp 3: Towards Effective ASP Planning" (Dimopoulos et al. 2018 -
+    # https://arxiv.org/pdf/1812.04491.pdf) details sequential and parallel meta-encodings, the source code for which
+    # is available in the Plasp repository (https://github.com/potassco/plasp). The paper specifically refers to the
+    # strips-incremental.lp encoding, but the authors also include a simplified sequential meta-encoding in
+    # sequential-horizon.lp. This simplified encoding yields a plan as a sequence of time-stamped actions if and only
+    # if the plan's length matches the externally defined horizon constant.
+    #
+    # At a high-level, my solution:
+    #   1. Converts the pseudo-PDDL description to ASP facts in a manner similar to the 'translate' feature of plasp
+    #   2. Adds a minimal version of the sequential-horizon meta-encoding
+    #   3. Finds the optimal (shortest) plan by progressively incrementing the horizon from t=[1, t_max] (inclusive)
+    #   4. Returns the optimal plan or None if no solution is found in the range [1, t_max]
+
     variables_string = ''
     constants_string = ''
     initial_state_string = ''
