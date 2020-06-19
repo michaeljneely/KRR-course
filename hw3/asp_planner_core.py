@@ -14,6 +14,8 @@
     --------------
     "A scholar knows not to waste time rediscovering information already known" - Brandon Sanderson, The Way of Kings
 
+    I'm not re-inventing the wheel, just putting pieces together.
+
     The goal is to convert a pseudo-PDDL description to ASP facts and then solve the planning problem.
     A solution is found with a meta-encoding. "plasp 3: Towards Effective ASP Planning" (Dimopoulos et al. 2018 -
     https://arxiv.org/pdf/1812.04491.pdf) details sequential and parallel meta-encodings, the source code for which
@@ -106,7 +108,7 @@ def init_sequential_planning_program() -> str:
 
 
 def make_positive(expression: Expr) -> Expr:
-    """Make any negated expression positive by removing the ~ if needed
+    """Make any expression positive by removing the ~ if needed
 
     :param expression: A potentially negative expression
     :type expression: Expr
@@ -118,6 +120,8 @@ def make_positive(expression: Expr) -> Expr:
         return new_expression
     return expression
 
+def is_variable(expression: Expr) -> bool:
+    return str(expression)[0].islower()
 
 def extract_constants_and_predicates(planning_problem: PlanningProblem) -> Tuple[List[str], List[Tuple[str, int]]]:
     """Extract all unique constants and predicates from a planning problem
