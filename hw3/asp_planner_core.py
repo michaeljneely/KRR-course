@@ -255,13 +255,16 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
     #                      value(predicate(("?", constant("?1"), ..., constant("?n"))), true OR false)).
     for goal in planning_problem.goals:
         positive_goal = make_positive(goal)
+        num_variables = sum(map(lambda x: str(x)[0].islower(), positive_goal.args))
         if len(goal.args) > 0:
-            constants  = ', '.join([f'constant("{str(arg)}")' for arg in positive_goal.args])
-            goal_predicate = f'predicate(("{positive_goal.op}", {constants}))'
-            goal_value = f'value(predicate(("{positive_goal.op}", {constants})), {"false" if positive_goal != goal else "true"})'
-            asp_facts += f'goal({goal_predicate}, {goal_value}).\n'
-        else:
-            asp_facts += f'goal(predicate(("{positive_goal.op}"))).\n'
+            if num_variables == 0:
+                constants  = ', '.join([f'constant("{str(arg)}")' for arg in positive_goal.args])
+                goal_predicate = f'predicate(("{positive_goal.op}", {constants}))'
+                goal_value = f'value(predicate(("{positive_goal.op}", {constants})), {"false" if positive_goal != goal else "true"})'
+                asp_facts += f'goal({goal_predicate}, {goal_value}).\n'
+            else:
+                # TODO: handle existentially quantified case
+                pass
 
     return asp_facts
 
@@ -316,7 +319,7 @@ def solve_planning_problem_using_ASP(planning_problem: PlanningProblem, t_max: i
     solution = []
 
     def on_model(model):
-        print(model)
+
         nonlocal solution
         steps = [atom for atom in model.symbols(atoms=True) if atom.name == 'occurs']
         # each occurs atom is a tuple of (action, timestep)
@@ -334,7 +337,7 @@ def solve_planning_problem_using_ASP(planning_problem: PlanningProblem, t_max: i
         control.ground([("base", [])])
         control.configuration.solve.models = 1 # we only need one feasible solution
         answer = control.solve(on_model=on_model)
-        print(answer)
+
         # Part 4 option 1: An optimal solution was found
         if answer.satisfiable:
             return solution
