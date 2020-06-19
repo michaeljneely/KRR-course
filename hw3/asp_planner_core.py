@@ -100,7 +100,6 @@ def init_sequential_planning_program() -> str:
 
     # The goal is not met unless the appropriate predicates hold their goal values at the final timestep
     asp_planning_program += ':- goal(Predicate, Value), not holds(Predicate, Value, horizon).\n'
-    # asp_planning_program += ':- goal(Predicate).\n'
 
     return asp_planning_program
 
@@ -257,18 +256,9 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
     for goal in planning_problem.goals:
         positive_goal = make_positive(goal)
         if len(goal.args) > 0:
-            arg_map = {}
-            variable_counter = 1
-            for arg in positive_goal.args:
-                print(arg)
-                if str(arg)[0].isupper():
-                    arg_map[str(arg)] = f'constant("{str(arg)}")'
-                else:
-                    arg_map[str(arg)] = f'constant(X{variable_counter})'
-                    variable_counter += 1
-            arguments = ", ".join(arg_map[str(arg)] for arg in positive_goal.args)
-            goal_predicate = f'predicate(("{positive_goal.op}", {arguments}))'
-            goal_value = f'value(predicate(("{positive_goal.op}", {arguments})), {"false" if positive_goal != goal else "true"})'
+            constants  = ', '.join([f'constant("{str(arg)}")' for arg in positive_goal.args])
+            goal_predicate = f'predicate(("{positive_goal.op}", {constants}))'
+            goal_value = f'value(predicate(("{positive_goal.op}", {constants})), {"false" if positive_goal != goal else "true"})'
             asp_facts += f'goal({goal_predicate}, {goal_value}).\n'
         else:
             asp_facts += f'goal(predicate(("{positive_goal.op}"))).\n'
