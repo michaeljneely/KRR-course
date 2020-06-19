@@ -128,16 +128,16 @@ def make_positive(expression: Expr) -> Expr:
     return expression
 
 
-def is_variable(expression: Expr) -> bool:
-    """Check if an expression is a variable. In the psuedo-PDDL description used in this assignment variables are lower
-    case and constants/predicates uppercase
+def is_variable(arg: Expr) -> bool:
+    """Check if an expressions' argument is a variable. In the psuedo-PDDL description used in this assignment
+     variables are lower case and constants/predicates are upper case
 
-    :param expression: An expression
-    :type expression: Expr
-    :return: True if the expression is a variable, False otherwise
+    :param arg: An expression argument
+    :type arg: Expr 
+    :return: True if the argument is a variable, False otherwise
     :rtype: bool
     """
-    return str(expression)[0].islower()
+    return str(arg)[0].islower()
 
 
 def extract_constants_and_predicates(planning_problem: PlanningProblem) -> Tuple[List[str], List[Tuple[str, int]]]:
