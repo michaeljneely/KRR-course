@@ -9,12 +9,30 @@
             https://arxiv.org/pdf/1812.04491.pdf
         - Potassco plasp
             https://github.com/potassco/plasp/
+
+    Solution Notes:
+    --------------
+    "A scholar knows not to waste time rediscovering information already known" - Brandon Sanderson, The Way of Kings
+
+    The goal is to convert a pseudo-PDDL description to ASP facts and then solve the planning problem.
+    A solution is found with a meta-encoding. "plasp 3: Towards Effective ASP Planning" (Dimopoulos et al. 2018 -
+    https://arxiv.org/pdf/1812.04491.pdf) details sequential and parallel meta-encodings, the source code for which
+    is available in the Plasp repository (https://github.com/potassco/plasp). The paper specifically refers to the
+    strips-incremental.lp encoding, but the authors also include a simplified sequential meta-encoding in
+    sequential-horizon.lp. This simplified encoding yields a plan as a sequence of time-stamped actions if and only
+    if the plan's length matches the externally defined horizon constant.
+
+    At a high-level, my solution:
+    1. Adds (and explains) a minimal version of plasp's sequential-horizon meta-encoding
+    2. Converts the pseudo-PDDL description to ASP facts in a manner similar to the 'translate' feature of plasp
+    3. Finds the optimal (shortest) plan by progressively incrementing the horizon from t = [1, t_max] (inclusive)
+    4. Returns the optimal plan or None if no solution is found in the range [1, t_max]
 """
 
 # Standard library
 import collections
 import re
-from typing import List, Union
+from typing import List, Tuple, Union
 
 # Local imports
 from planning import PlanningProblem, Action, Expr, expr
@@ -31,7 +49,8 @@ def init_sequential_planning_program() -> str:
        https://arxiv.org/pdf/1812.04491.pdf) and explicitly declared in the plasp repository:
        https://github.com/potassco/plasp/blob/master/encodings/sequential-horizon.lp
 
-       All credit goes to the plasp authors. My only contribution is explaining each group of statements in detail
+       All credit goes to the plasp authors. My only contribution is minor simplification and 
+       explaining each group of statements in detail
 
     :return: Initialized ASP sequential planning program, ready to be extended with facts from a planning problem
     :rtype: str
@@ -39,19 +58,19 @@ def init_sequential_planning_program() -> str:
     # We reason about the state of the world at particular time steps: [0, t_max]
     asp_planning_program = 'time(0..horizon).\n'
 
-    # Variables contain values, which may be True or False
+    # Predicates contain values, which may be True or False
     asp_planning_program += 'boolean(true).\n'
     asp_planning_program += 'boolean(false).\n'
     # The contains/2 atom captures this relationship
-    asp_planning_program += 'contains(X, value(X, B)) :- variable(X), boolean(B).\n'
+    asp_planning_program += 'contains(X, value(X, B)) :- predicate(X), boolean(B).\n'
 
     # The initial state is at time t=0
-    # The holds/3 atom captures the value of a variable at a particular timestep t >= 0
-    asp_planning_program += 'holds(Variable, Value, 0) :- initialState(Variable, Value).\n'
+    # The holds/3 atom captures the value of a predicate at a particular timestep t >= 0
+    asp_planning_program += 'holds(Predicate, Value, 0) :- initialState(Predicate, Value).\n'
 
     # Closed World Assumption (CWA): Any ground atoms in the initial state which are not explicitly declared True
     # are set to False
-    asp_planning_program += 'initialState(X, value(X, false)) :- variable(X), not initialState(X, value(X, true)).\n'
+    asp_planning_program += 'initialState(X, value(X, false)) :- predicate(X), not initialState(X, value(X, true)).\n'
 
     # The solution to the planning problem is extracted from occurs/2 atoms
     # This is a sequential encoding: only one action may occur at a particular timestep
@@ -59,35 +78,139 @@ def init_sequential_planning_program() -> str:
     asp_planning_program += '1 {occurs(Action, T) : action(Action)} 1 :- time(T), T > 0.\n'
 
     # An action may not occur unless its preconditions are met (i.e., for an action to occur at time t,
-    # all applicable variables must hold the values specified in the precondition at time t-1)
-    asp_planning_program += '''
-        :- occurs(Action, T), precondition(Action, Variable, Value), not holds(Variable, Value, T - 1).\n'''
+    # all applicable predicates must hold the values specified in the precondition at time t-1)
+    asp_planning_program += ':- occurs(Action, T), precondition(Action, Predicate, Value), not holds(Predicate, Value, T - 1).\n'
 
-    # Capture the effects of an action: at time t, the value of a variable is changed to the one specified in the
-    # action's postcondition as long as the action was valid (see previous statement).
+    # Capture the effects of an action: at time t, the value of a predicate is changed to the one specified in the
+    # action's effect as long as the action was valid (see previous statement).
     asp_planning_program += '''
-        caused(Variable, Value, T) :-
+        caused(Predicate, Value, T) :-
             occurs(Action, T),
-            postcondition(Action, Effect, Variable, Value),
-            holds(VariablePre, ValuePre, T - 1) : precondition(Effect, VariablePre, ValuePre).\n'''
+            effect(Action, Predicate, Value),
+            holds(PredicatePre, ValuePre, T - 1) : precondition(Action, PredicatePre, ValuePre).\n'''
 
-    # A variable is considered modified if its value was changed by an action
-    asp_planning_program += 'modified(Variable, T) :- caused(Variable, Value, T).\n'
+    # A predicate is considered modified if its value was changed by an action
+    asp_planning_program += 'modified(Predicate, T) :- caused(Predicate, Value, T).\n'
 
-    # The so-called 'inertia' statements. At a particular timestep, the value of a variable was either:
+    # The so-called 'inertia' statements. At a particular timestep, the value of a predicate was either:
     # 1) Modified and therefore holds a new value
-    asp_planning_program += 'holds(Variable, Value, T) :- caused(Variable, Value, T).\n'
+    asp_planning_program += 'holds(Predicate, Value, T) :- caused(Predicate, Value, T).\n'
     # 2) Was not modified and therefore continues to hold its previous value
-    asp_planning_program += 'holds(variable(V), Value, T) :- holds(variable(V), Value, T - 1), not modified(variable(V), T), time(T).\n'
+    asp_planning_program += 'holds(predicate(V), Value, T) :- holds(predicate(V), Value, T - 1), not modified(predicate(V), T), time(T).\n'
 
-    # The goal is not met unless the appropriate variables hold their goal values at the final timestep
-    asp_planning_program += ':- goal(Variable, Value), not holds(Variable, Value, horizon).\n'
+    # The goal is not met unless the appropriate predicates hold their goal values at the final timestep
+    asp_planning_program += ':- goal(Predicate, Value), not holds(Predicate, Value, horizon).\n'
 
     return asp_planning_program
 
 
+def make_positive(expression: Expr) -> Expr:
+    """Make any negated expression positive by removing the ~ if needed
+
+    :param expression: An potentially expression
+    :type expression: Expr
+    :return: A guaranteed positive expression
+    :rtype: Expr
+    """
+    if expression.op == '~':
+        new_expression = Expr(expression.args[0].op, *expression.args[0].args)
+        return new_expression
+    return expression
+
+
+def extract_constants_and_predicates(planning_problem: PlanningProblem) -> Tuple[List[str], List[Tuple[str, int]]]:
+    """Extract all unique constants and predicates from a planning problem
+
+    :param planning_problem: A description of the initial state, action(s), and goal(s) of a planning problem
+    :type planning_problem: PlanningProblem
+    :return: Constants as a list of strings and predicates as a list of (name, number of arguments) tuples
+    :rtype: Tuple[List[str], List[Tuple(str, int)]]
+    """
+
+    seen_predicates = set()
+    seen_constants = set()
+
+    initial_predicates = planning_problem.initial
+    # Make all predicates positive so we can extract the name via predicate.op
+    goal_predicates = list(map(make_positive, planning_problem.goals))
+    precondition_predicates = list(map(make_positive, [p for a in planning_problem.actions for p in a.precond]))
+    postcondition_predicates = list(map(make_positive, [e for a in planning_problem.actions for e in a.effect]))
+
+    all_predicates = initial_predicates + goal_predicates + precondition_predicates + postcondition_predicates
+
+    for predicate in all_predicates:
+        # Note: in the psuedo-PDDL description used in this assignment variables are lower case
+        # and constants/predicates uppercase
+        if predicate.op not in seen_predicates and predicate.op[0].isupper():
+            seen_predicates.add((predicate.op, len(predicate.args)))
+        for arg in predicate.args:
+            if arg not in seen_constants and str(arg)[0].isupper():
+                seen_constants.add(arg)
+
+    return list(seen_constants), list(seen_predicates)
+
+
+def action_to_asp_facts(action: Action) -> str:
+    """Convert a planning problem Action into a collection of ASP facts
+
+    :param action: An action schema with preconditions and effects
+    :type action: Action
+    :return: A collection of asp facts for the action, precondition, and effects
+    :rtype: str
+    """
+    fact_string = ''
+
+    # Keep track of arguments in order to correctly label constants
+    arg_map = {}
+    variable_counter = 1
+    for arg in action.args:
+        if str(arg)[0].isupper():
+            arg_map[str(arg)] = f'constant("{str(arg)}")'
+        else:
+            arg_map[str(arg)] = f'X{variable_counter}'
+            variable_counter += 1
+
+    # First declare the action as:
+    #   action(action(("?", X1, ..., Xn))) :- constant(X1), ..., constant(Xn).
+    if arg_map.values():
+        action_signature = f'action(("{action.name}", {", ".join(arg_map.values())}))'
+        action_constants = ', '.join([f'constant({k})' for k in arg_map.values()])
+        action_constants = ' :- ' + action_constants
+    else:
+        action_signature = f'action(("{action.name}"))'
+        action_constants = ''
+    fact_string += f'action({action_signature}){action_constants}.\n'
+
+
+    # Declare the preconditions as:
+    #   precondition(action_signature, predicate((...)), value(...(predicate(()), true or false)) :- action(action((...))).
+    # And Effects as:
+    #   effect(action_signature, predicate((...)), value(...(predicate(()), true or false)) :- action(action((...))).
+    preconditions = [('precondition', p) for p in action.precond]
+    effects = [('effect', e) for e in action.effect]
+    
+    for name, expression in preconditions + effects:
+        positive_expression = make_positive(expression)
+        # map variables to X1,...,Xn and map constants to constant("...")
+        action_arg_map = {}
+        for arg in positive_expression.args:
+            if str(arg) in arg_map:
+                action_arg_map[str(arg)] = arg_map[str(arg)]
+            else:
+                action_arg_map[str(arg)] = f'constant("{str(arg)}")'
+
+        arguments = ", ".join(action_arg_map[str(arg)] for arg in positive_expression.args)
+        predicate = f'predicate(("{positive_expression.op}", {arguments}))'
+        boolean_value = "false" if expression != positive_expression else "true"
+        value = f'value(predicate(("{positive_expression.op}", {arguments})), {boolean_value})'
+
+        fact_string += f'{name}({action_signature},{predicate}, {value}) :- action({action_signature}).\n'
+        
+    return fact_string
+
+
 def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
-    """Translate a pseudo-PDDL description to a collection of ASP facts per an approach similar to 
+    """Translate a pseudo-PDDL description to a collection of ASP facts per an approach similar to
        plasp translate (https://github.com/potassco/plasp)
 
     :param planning_problem: A description of the initial state, action(s), and goal(s) of a planning problem
@@ -95,127 +218,55 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
     :return: A single string containing the ASP fact translations
     :rtype: str
     """
+    asp_facts = ''
 
-    # Step 1: 
+    constants, predicates = extract_constants_and_predicates(planning_problem)
 
-    variables_string = ''
-    constants_string = ''
-    initial_state_string = ''
-    actions_string = ''
-    goal_string = ''
+    # Step 1: Declare constants as constant(constant("?")).
+    for constant in constants:
+        asp_facts += f'constant(constant("{constant}")).\n'
 
-    ###
-    seen_predicates = set()
-    seen_constants = set()
-
-    for predicate in planning_problem.initial:
-        if predicate.op not in seen_predicates:
-            num_arguments = len(predicate.args)
+    # Step 2: Declare predicates and their arguments as:
+    #         predicate(predicate("?", X1, ..., Xn)) :- constant(X1), ..., constant(Xn).
+    for name, num_arguments in predicates:
+        if num_arguments > 0:
             predicate_variables = ', '.join([f'X{i}' for i in range(1, num_arguments +1)])
-            predicate_types = ', '.join([f'has(X{i})' for i in range(1, num_arguments +1)])
-            variables_string += f'variable(variable("{predicate.op}", {predicate_variables})) :- {predicate_types}.\n'
-            seen_predicates.add(predicate.op)
+            predicate_constants = ', '.join([f'constant(X{i})' for i in range(1, num_arguments +1)])
+            asp_facts += f'predicate(predicate("{name}", {predicate_variables})) :- {predicate_constants}.\n'
+        else:
+            asp_facts += f'predicate(predicate("{name}")).\n'
 
-        constants  = ', '.join([f'constant("{str(arg)}")' for arg in predicate.args])
-        initial_state_variable = f'variable(("{predicate.op}", {constants}))'
-        initial_state_value = f'value(variable(("{predicate.op}", {constants})), true)'
-        initial_state_string += f'initialState({initial_state_variable}, {initial_state_value}).\n'
-
-        for arg in predicate.args:
-            if arg not in seen_constants:
-                seen_constants.add(arg)
-    
-    for goal in planning_problem.goals:
-
-        neg = False
-
-        if goal.op == '~':
-            neg = True
-            goal = Expr(goal.args[0].op, *goal.args[0].args)
-
-        for arg in goal.args:
-            if arg not in seen_constants and str(arg)[0].isupper():
-                seen_constants.add(arg)
-        constants  = ', '.join([f'constant("{str(arg)}")' for arg in goal.args if str(arg)[0].isupper()])
-        if constants:
-            goal_variable = f'variable(("{goal.op}", {constants}))'
-            goal_value = f'value(variable(("{goal.op}", {constants})), {"false" if neg else "true"})'
-            goal_string += f'goal({goal_variable}, {goal_value}).\n'
-
-    for constant in seen_constants:
-        constants_string += f'constant(constant("{constant}")).\n'
-        constants_string += f'has(constant("{constant}")).\n'
-
+    # Step 3: Extract and declare actions with their pre and post conditions
     for action in planning_problem.actions:
-        arg_map = {}
-        num_arguments = len(action.args)
-        for i, arg in enumerate(action.args):
-            arg_map[str(arg)] = f'X{i+1}'
+            asp_facts += action_to_asp_facts(action)
 
-        action_variables = ', '.join(arg_map.values())
-        action_types = ', '.join([f'has({k})' for k in arg_map.values()])
-        actions_string += f'action(action(("{action.name}", {action_variables}))) :- {action_types}.\n'
-        for precondition in action.precond:
+    # Step 4: Extract and declare initial state as:
+    #         initialState(predicate(("?", constant("?1"), ..., constant("?n"))),
+    #                      value(predicate(("?", constant("?1"), ..., constant("?n"))), true)).
+    for predicate in planning_problem.initial:
+        constants  = ', '.join([f'constant("{str(arg)}")' for arg in predicate.args])
+        initial_state_predicate = f'predicate(("{predicate.op}", {constants}))'
+        # Ground atom in the initial state are exclusively positive
+        initial_state_value = f'value(predicate(("{predicate.op}", {constants})), true)'
+        asp_facts += f'initialState({initial_state_predicate}, {initial_state_value}).\n'
 
-            neg = False
+    # Step 4: Extract and declare the goal as:
+    #         goal(predicate(("?", constant("?1"), ..., constant("?n"))),
+    #                      value(predicate(("?", constant("?1"), ..., constant("?n"))), true OR false)).
+    for goal in planning_problem.goals:
+        positive_goal = make_positive(goal)
+        num_variables = sum(map(lambda x: str(x)[0].islower(), positive_goal.args))
+        if len(goal.args) > 0:
+            if num_variables == 0:
+                constants  = ', '.join([f'constant("{str(arg)}")' for arg in positive_goal.args])
+                goal_predicate = f'predicate(("{positive_goal.op}", {constants}))'
+                goal_value = f'value(predicate(("{positive_goal.op}", {constants})), {"false" if positive_goal != goal else "true"})'
+                asp_facts += f'goal({goal_predicate}, {goal_value}).\n'
+            else:
+                # TODO: handle existentially quantified case
+                pass
 
-            if precondition.op == '~':
-                neg = True
-                precondition = Expr(precondition.args[0].op, *precondition.args[0].args)
-
-            precondition_action = f'action(("{action.name}", {", ".join(arg_map.values())}))'
-
-            action_arg_map = {}
-            for arg in precondition.args:
-                if str(arg) in arg_map:
-                    action_arg_map[str(arg)] = arg_map[str(arg)]
-                else:
-                    action_arg_map[str(arg)] = f'constant("{str(arg)}")'
-            # precondition(action(("load", X1, X2, X3)), variable(("at-airport", X1, X3)), value(variable(("at-airport", X1, X3)), true)) :- action(action(("load", X1, X2, X3))).
-           
-            precondition_variable = f'variable(("{precondition.op}", {", ".join(action_arg_map[str(arg)] for arg in precondition.args)}))'
-            precondition_value = f'value(variable(("{precondition.op}", {", ".join(action_arg_map[str(arg)] for arg in precondition.args)})), {"false" if neg else "true"})'
-
-            actions_string += f'precondition({precondition_action}, {precondition_variable}, {precondition_value}) :- action({precondition_action}).\n'
-
-        for postcondition in action.effect:
-
-            neg = False
-
-            if postcondition.op == '~':
-                neg = True
-                postcondition = Expr(postcondition.args[0].op, *postcondition.args[0].args)
-
-            action_arg_map = {}
-            for arg in postcondition.args:
-                if str(arg) in arg_map:
-                    action_arg_map[str(arg)] = arg_map[str(arg)]
-                else:
-                    action_arg_map[str(arg)] = f'constant("{str(arg)}")'
-
-            postcondition_action = f'action(("{action.name}", {", ".join(arg_map.values())}))'
-            postcondition_variable = f'variable(("{postcondition.op}", {", ".join(action_arg_map[str(arg)] for arg in postcondition.args)}))'
-            postcondition_value = f'value(variable(("{postcondition.op}", {", ".join(action_arg_map[str(arg)] for arg in postcondition.args)})), {"false" if neg else "true"})'
-            actions_string += f'postcondition({postcondition_action}, effect(unconditional), {postcondition_variable}, {postcondition_value}) :- action({postcondition_action}).\n'
-
-    facts = f'''
-        % variables
-        {variables_string}
-
-        % actions
-        {actions_string}
-
-        % objects
-        {constants_string}
-
-        % initial state
-        {initial_state_string}
-
-        % goal
-        {goal_string}
-
-        #show occurs/2.'''
-    return facts
+    return asp_facts
 
 
 def plan_step_to_expr(atom: clingo.Symbol) -> str:
@@ -231,8 +282,11 @@ def plan_step_to_expr(atom: clingo.Symbol) -> str:
     # The predicate and its arguments are double-quoted. Simply extract them
     matches = re.findall(r'\"(.+?)\"', str(atom))
     predicate = matches[0]
-    args = ",".join(matches[1:])
-    return f'{predicate}({args})'
+    if matches[1:]:
+        args = f'({",".join(matches[1:])})'
+    else:
+        args = ''
+    return predicate + args
 
 
 ###
@@ -250,25 +304,7 @@ def solve_planning_problem_using_ASP(planning_problem: PlanningProblem, t_max: i
     :return: A list of string representation of expressions that composes a shortest plan for planning_problem
              (if some plan of length at most t_max exists), and None otherwise.
     :rtype: List[str]
-    """    
-    # Solution Notes
-    #
-    # "A scholar knows not to waste time rediscovering information already known" - Brandon Sanderson, The Way of Kings
-    #
-    # The goal is to convert a pseudo-PDDL description to ASP facts and then solve the planning problem.
-    # A solution is found with a meta-encoding. "plasp 3: Towards Effective ASP Planning" (Dimopoulos et al. 2018 -
-    # https://arxiv.org/pdf/1812.04491.pdf) details sequential and parallel meta-encodings, the source code for which
-    # is available in the Plasp repository (https://github.com/potassco/plasp). The paper specifically refers to the
-    # strips-incremental.lp encoding, but the authors also include a simplified sequential meta-encoding in
-    # sequential-horizon.lp. This simplified encoding yields a plan as a sequence of time-stamped actions if and only
-    # if the plan's length matches the externally defined horizon constant.
-    #
-    # At a high-level, my solution:
-    #   1. Adds (and explains) a minimal version of plasp's sequential-horizon meta-encoding
-    #   2. Converts the pseudo-PDDL description to ASP facts in a manner similar to the 'translate' feature of plasp
-    #   3. Finds the optimal (shortest) plan by progressively incrementing the horizon from t = [1, t_max] (inclusive)
-    #   4. Returns the optimal plan or None if no solution is found in the range [1, t_max]
-
+    """
     # Part 1: Add sequential horizon meta-encoding
     sequential_encoding = init_sequential_planning_program()
 
@@ -283,6 +319,7 @@ def solve_planning_problem_using_ASP(planning_problem: PlanningProblem, t_max: i
     solution = []
 
     def on_model(model):
+
         nonlocal solution
         steps = [atom for atom in model.symbols(atoms=True) if atom.name == 'occurs']
         # each occurs atom is a tuple of (action, timestep)
