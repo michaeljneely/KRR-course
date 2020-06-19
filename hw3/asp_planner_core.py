@@ -25,7 +25,7 @@
     if the plan's length matches the externally defined horizon constant.
 
     At a high-level, my solution:
-    1. Adds (and explains) a minimal version of plasp's sequential-horizon meta-encoding
+    1. Adds, explains, and slightly alters a minimal version of plasp's sequential-horizon meta-encoding
     2. Converts the pseudo-PDDL description to ASP facts in a manner similar to the 'translate' feature of plasp
     3. Finds the optimal (shortest) plan by progressively incrementing the horizon from t = [1, t_max] (inclusive)
     4. Returns the optimal plan or None if no solution is found in the range [1, t_max]
@@ -38,7 +38,7 @@ import re
 from typing import List, Tuple, Union
 
 # Local imports
-from planning import PlanningProblem, Action, Expr, expr
+from planning import PlanningProblem, Action, Expr
 
 # External imports
 import clingo
@@ -48,63 +48,70 @@ import clingo
 ###
 def init_sequential_planning_program() -> str:
     """Initialize an ASP sequential planning program with a minimized version of the sequential horizon meta-encoding
-       as detailed in "plasp 3: Towards Effective ASP Planning" (Dimopoulos et al. 2018 -
-       https://arxiv.org/pdf/1812.04491.pdf) and explicitly declared in the plasp repository:
-       https://github.com/potassco/plasp/blob/master/encodings/sequential-horizon.lp
+    as detailed in "plasp 3: Towards Effective ASP Planning" (Dimopoulos et al. 2018 -
+    https://arxiv.org/pdf/1812.04491.pdf) and explicitly declared in the plasp repository:
+    https://github.com/potassco/plasp/blob/master/encodings/sequential-horizon.lp
 
-       All credit goes to the plasp authors. My only contribution is minor simplification and 
-       explaining each group of statements in detail
+    All credit goes to the plasp authors. My only contribution is minor simplification and
+    explaining each group of statements in detail
 
     :return: Initialized ASP sequential planning program, ready to be extended with facts from a planning problem
     :rtype: str
     """
     # We reason about the state of the world at particular time steps: [0, t_max]
-    asp_planning_program = 'time(0..horizon).\n'
+    seq_encoding = 'time(0..horizon).\n'
 
     # Predicates contain values, which may be True or False
-    asp_planning_program += 'boolean(true).\n'
-    asp_planning_program += 'boolean(false).\n'
+    seq_encoding += 'boolean(true).\n'
+    seq_encoding += 'boolean(false).\n'
     # The contains/2 atom captures this relationship
-    asp_planning_program += 'contains(X, value(X, B)) :- predicate(X), boolean(B).\n'
+    seq_encoding += 'contains(X, value(X, B)) :- predicate(X), boolean(B).\n'
 
     # The initial state is at time t=0
     # The holds/3 atom captures the value of a predicate at a particular timestep t >= 0
-    asp_planning_program += 'holds(Predicate, Value, 0) :- initialState(Predicate, Value).\n'
+    seq_encoding += 'holds(Predicate, Value, 0) :- initialState(Predicate, Value).\n'
 
     # Closed World Assumption (CWA): Any ground atoms in the initial state which are not explicitly declared True
     # are set to False
-    asp_planning_program += 'initialState(X, value(X, false)) :- predicate(X), not initialState(X, value(X, true)).\n'
+    seq_encoding += 'initialState(X, value(X, false)) :- predicate(X), not initialState(X, value(X, true)).\n'
 
     # The solution to the planning problem is extracted from occurs/2 atoms
     # This is a sequential encoding: only one action may occur at a particular timestep
     # Also, actions may only occur AFTER the initial state.
-    asp_planning_program += '1 {occurs(Action, T) : action(Action)} 1 :- time(T), T > 0.\n'
+    seq_encoding += '1 {occurs(Action, T) : action(Action)} 1 :- time(T), T > 0.\n'
 
     # An action may not occur unless its preconditions are met (i.e., for an action to occur at time t,
     # all applicable predicates must hold the values specified in the precondition at time t-1)
-    asp_planning_program += ':- occurs(Action, T), precondition(Action, Predicate, Value), not holds(Predicate, Value, T - 1).\n'
+    seq_encoding += (
+        ':- occurs(Action, T), precondition(Action, Predicate, Value), '
+        'not holds(Predicate, Value, T - 1).\n'
+    )
 
     # Capture the effects of an action: at time t, the value of a predicate is changed to the one specified in the
     # action's effect as long as the action was valid (see previous statement).
-    asp_planning_program += '''
-        caused(Predicate, Value, T) :-
-            occurs(Action, T),
-            effect(Action, Predicate, Value),
-            holds(PredicatePre, ValuePre, T - 1) : precondition(Action, PredicatePre, ValuePre).\n'''
+    seq_encoding += (
+        'caused(Predicate, Value, T) :- '
+        'occurs(Action, T), '
+        'effect(Action, Predicate, Value), '
+        'holds(PredicatePre, ValuePre, T - 1) : precondition(Action, PredicatePre, ValuePre).\n'
+    )
 
     # A predicate is considered modified if its value was changed by an action
-    asp_planning_program += 'modified(Predicate, T) :- caused(Predicate, Value, T).\n'
+    seq_encoding += 'modified(Predicate, T) :- caused(Predicate, Value, T).\n'
 
     # The so-called 'inertia' statements. At a particular timestep, the value of a predicate was either:
     # 1) Modified and therefore holds a new value
-    asp_planning_program += 'holds(Predicate, Value, T) :- caused(Predicate, Value, T).\n'
+    seq_encoding += 'holds(Predicate, Value, T) :- caused(Predicate, Value, T).\n'
     # 2) Was not modified and therefore continues to hold its previous value
-    asp_planning_program += 'holds(predicate(V), Value, T) :- holds(predicate(V), Value, T - 1), not modified(predicate(V), T), time(T).\n'
+    seq_encoding += (
+        'holds(predicate(V), Value, T) :- holds(predicate(V), Value, T - 1), '
+        'not modified(predicate(V), T), time(T).\n'
+    )
 
     # The goal is not met unless the appropriate predicates hold their goal values at the final timestep
-    asp_planning_program += ':- goal(Predicate, Value), not holds(Predicate, Value, horizon).\n'
+    seq_encoding += ':- goal(Predicate, Value), not holds(Predicate, Value, horizon).\n'
 
-    return asp_planning_program
+    return seq_encoding
 
 
 def make_positive(expression: Expr) -> Expr:
@@ -120,8 +127,18 @@ def make_positive(expression: Expr) -> Expr:
         return new_expression
     return expression
 
+
 def is_variable(expression: Expr) -> bool:
+    """Check if an expression is a variable. In the psuedo-PDDL description used in this assignment variables are lower
+    case and constants/predicates uppercase
+
+    :param expression: An expression
+    :type expression: Expr
+    :return: True if the expression is a variable, False otherwise
+    :rtype: bool
+    """
     return str(expression)[0].islower()
+
 
 def extract_constants_and_predicates(planning_problem: PlanningProblem) -> Tuple[List[str], List[Tuple[str, int]]]:
     """Extract all unique constants and predicates from a planning problem
@@ -195,7 +212,7 @@ def action_to_asp_facts(action: Action) -> str:
     #   effect(action_signature, predicate((...)), value(...(predicate(()), true or false)) :- action(action((...))).
     preconditions = [('precondition', p) for p in action.precond]
     effects = [('effect', e) for e in action.effect]
-    
+
     for name, expression in preconditions + effects:
         positive_expression = make_positive(expression)
         # map variables to X1,...,Xn and map constants to constant("...")
@@ -217,7 +234,7 @@ def action_to_asp_facts(action: Action) -> str:
         value = f'value({predicate}, {boolean_value})'
 
         fact_string += f'{name}({action_signature},{predicate}, {value}) :- action({action_signature}).\n'
-        
+
     return fact_string
 
 
@@ -250,7 +267,7 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
 
     # Step 3: Extract and declare actions with their pre and post conditions
     for action in planning_problem.actions:
-            asp_facts += action_to_asp_facts(action)
+        asp_facts += action_to_asp_facts(action)
 
     # Step 4: Extract and declare initial state as:
     #         initialState(predicate(("?", constant("?1"), ..., constant("?n"))),
@@ -296,7 +313,6 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
             all_goals.append(f'goal({goal_predicate}, {goal_value})')
         asp_facts += f'{"; ".join(all_goals)}.\n'
 
-    print(asp_facts)
     return asp_facts
 
 
@@ -343,6 +359,8 @@ def solve_planning_problem_using_ASP(planning_problem: PlanningProblem, t_max: i
     facts = planning_problem_to_asp_facts(planning_problem)
 
     asp_planning_program = sequential_encoding + facts
+
+    print(asp_planning_program)
 
     # If an answer set is found, build the solution by extracting the occurs/2 atoms, sorting them by timestep, and
     # converting them to string expressions
