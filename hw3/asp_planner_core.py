@@ -31,6 +31,7 @@
 
 # Standard library
 import collections
+import itertools
 import re
 from typing import List, Tuple, Union
 
@@ -107,7 +108,7 @@ def init_sequential_planning_program() -> str:
 def make_positive(expression: Expr) -> Expr:
     """Make any negated expression positive by removing the ~ if needed
 
-    :param expression: An potentially expression
+    :param expression: A potentially negative expression
     :type expression: Expr
     :return: A guaranteed positive expression
     :rtype: Expr
@@ -129,6 +130,7 @@ def extract_constants_and_predicates(planning_problem: PlanningProblem) -> Tuple
 
     seen_predicates = set()
     seen_constants = set()
+    constants_per_predicate = collections.defaultdict(list)
 
     initial_predicates = planning_problem.initial
     # Make all predicates positive so we can extract the name via predicate.op
@@ -146,8 +148,9 @@ def extract_constants_and_predicates(planning_problem: PlanningProblem) -> Tuple
         for arg in predicate.args:
             if arg not in seen_constants and str(arg)[0].isupper():
                 seen_constants.add(arg)
+                constants_per_predicate[predicate.op].append(arg)
 
-    return list(seen_constants), list(seen_predicates)
+    return list(seen_constants), list(seen_predicates), constants_per_predicate
 
 
 def action_to_asp_facts(action: Action) -> str:
@@ -220,7 +223,7 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
     """
     asp_facts = ''
 
-    constants, predicates = extract_constants_and_predicates(planning_problem)
+    constants, predicates, constants_per_predicate = extract_constants_and_predicates(planning_problem)
 
     # Step 1: Declare constants as constant(constant("?")).
     for constant in constants:
@@ -255,17 +258,18 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
     #                      value(predicate(("?", constant("?1"), ..., constant("?n"))), true OR false)).
     for goal in planning_problem.goals:
         positive_goal = make_positive(goal)
-        num_variables = sum(map(lambda x: str(x)[0].islower(), positive_goal.args))
+        variables = [str(arg) for arg in positive_goal.args if str(arg)[0].islower()]
+        constants  = ', '.join([f'constant("{str(arg)}")' for arg in positive_goal.args if str(arg)[0].isupper()])
         if len(goal.args) > 0:
-            if num_variables == 0:
-                constants  = ', '.join([f'constant("{str(arg)}")' for arg in positive_goal.args])
+            if not variables:
                 goal_predicate = f'predicate(("{positive_goal.op}", {constants}))'
                 goal_value = f'value(predicate(("{positive_goal.op}", {constants})), {"false" if positive_goal != goal else "true"})'
                 asp_facts += f'goal({goal_predicate}, {goal_value}).\n'
-            else:
-                # TODO: handle existentially quantified case
-                pass
-
+            # TODO: handle existentially quantified case where goals contain variables
+        else:
+            goal_predicate = f'predicate(("{positive_goal.op}"))'
+            goal_value = f'value({goal_predicate}, {"false" if positive_goal != goal else "true"})'
+            asp_facts += f'goal({goal_predicate}, {goal_value}).\n'
     return asp_facts
 
 
@@ -313,7 +317,6 @@ def solve_planning_problem_using_ASP(planning_problem: PlanningProblem, t_max: i
 
     asp_planning_program = sequential_encoding + facts
 
-    print(asp_planning_program)
     # If an answer set is found, build the solution by extracting the occurs/2 atoms, sorting them by timestep, and
     # converting them to string expressions
     solution = []
