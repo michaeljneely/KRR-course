@@ -207,9 +207,14 @@ def action_to_asp_facts(action: Action) -> str:
                 action_arg_map[str(arg)] = f'constant("{str(arg)}")'
 
         arguments = ", ".join(action_arg_map[str(arg)] for arg in positive_expression.args)
-        predicate = f'predicate(("{positive_expression.op}", {arguments}))'
+
+        if arguments:
+            predicate = f'predicate(("{positive_expression.op}", {arguments}))'
+        else:
+            predicate = f'predicate(("{positive_expression.op}"))'
+
         boolean_value = "false" if expression != positive_expression else "true"
-        value = f'value(predicate(("{positive_expression.op}", {arguments})), {boolean_value})'
+        value = f'value({predicate}, {boolean_value})'
 
         fact_string += f'{name}({action_signature},{predicate}, {value}) :- action({action_signature}).\n'
         
