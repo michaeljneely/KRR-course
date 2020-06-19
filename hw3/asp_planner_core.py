@@ -257,23 +257,41 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
         initial_state_value = f'value(predicate(("{predicate.op}", {constants})), true)'
         asp_facts += f'initialState({initial_state_predicate}, {initial_state_value}).\n'
 
-    # Step 4: Extract and declare the goal as:
+    # Step 4: Extract and declare goals as:
     #         goal(predicate(("?", constant("?1"), ..., constant("?n"))),
     #                      value(predicate(("?", constant("?1"), ..., constant("?n"))), true OR false)).
+    # This is an extra-tricky part because the goals can contain variables
     for goal in planning_problem.goals:
         positive_goal = make_positive(goal)
-        variables = [str(arg) for arg in positive_goal.args if str(arg)[0].islower()]
-        constants  = ', '.join([f'constant("{str(arg)}")' for arg in positive_goal.args if str(arg)[0].isupper()])
-        if len(goal.args) > 0:
-            if not variables:
-                goal_predicate = f'predicate(("{positive_goal.op}", {constants}))'
-                goal_value = f'value(predicate(("{positive_goal.op}", {constants})), {"false" if positive_goal != goal else "true"})'
-                asp_facts += f'goal({goal_predicate}, {goal_value}).\n'
-            # TODO: handle existentially quantified case where goals contain variables
-        else:
-            goal_predicate = f'predicate(("{positive_goal.op}"))'
-            goal_value = f'value({goal_predicate}, {"false" if positive_goal != goal else "true"})'
-            asp_facts += f'goal({goal_predicate}, {goal_value}).\n'
+        goal_args = []
+        for arg in positive_goal.args:
+            # If it's a variable, get all its possibilities
+            if is_variable(arg):
+                # Case 1: We have seen constants for this predicate before
+                if positive_goal.op in constants_per_predicate:
+                    possibilities = map(lambda x: f'constant("{x}")', constants_per_predicate[positive_goal.op])
+                # Case 2: We have no information. Assume it could be any constant
+                else:
+                    possibilities = map(lambda x: f'constant("{x}")', sum(constants_per_predicate.values(), []))
+                goal_args.append(possibilities)
+            else:
+                goal_args.append([f'constant("{arg}")'])
+
+        # If there is more than one possible assignment for a goal, declare the goal as a disjunct of all possible assignments
+        # TODO: is this correct?
+        all_goals = []
+        for possible_assignment in itertools.product(*goal_args):
+            variables = ', '.join(list(possible_assignment))
+            if variables:
+                goal_predicate = f'predicate(("{positive_goal.op}", {variables}))'
+                goal_value = f'value(predicate(("{positive_goal.op}", {variables})), {"false" if positive_goal != goal else "true"})'
+            else:
+                goal_predicate = f'predicate(("{positive_goal.op}"))'
+                goal_value = f'value(predicate(("{positive_goal.op}")), {"false" if positive_goal != goal else "true"})'
+            all_goals.append(f'goal({goal_predicate}, {goal_value})')
+        asp_facts += f'{"; ".join(all_goals)}.\n'
+
+    print(asp_facts)
     return asp_facts
 
 
