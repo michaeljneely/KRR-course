@@ -273,7 +273,7 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
     #         initialState(predicate(("?", constant("?1"), ..., constant("?n"))),
     #                      value(predicate(("?", constant("?1"), ..., constant("?n"))), true)).
     for predicate in planning_problem.initial:
-        constants  = ', '.join([f'constant("{str(arg)}")' for arg in predicate.args])
+        constants = ', '.join([f'constant("{str(arg)}")' for arg in predicate.args])
         initial_state_predicate = f'predicate(("{predicate.op}", {constants}))'
         # Ground atom in the initial state are exclusively positive
         initial_state_value = f'value(predicate(("{predicate.op}", {constants})), true)'
@@ -329,10 +329,7 @@ def plan_step_to_expr(atom: clingo.Symbol) -> str:
     # The predicate and its arguments are double-quoted. Simply extract them
     matches = re.findall(r'\"(.+?)\"', str(atom))
     predicate = matches[0]
-    if matches[1:]:
-        args = f'({",".join(matches[1:])})'
-    else:
-        args = ''
+    args = f'({",".join(matches[1:])})' if matches[1:] else ''
     return predicate + args
 
 
@@ -375,9 +372,9 @@ def solve_planning_problem_using_ASP(planning_problem: PlanningProblem, t_max: i
         solution = list(map(plan_step_to_expr, sorted_steps))
 
     # Part 3: Find the shortest plan by checking for answer sets starting at t=1
-    for t in range(1, t_max + 1):
+    for horizon in range(1, t_max + 1):
 
-        time_bounded_program = f'#const horizon={t}.\n{asp_planning_program}'''
+        time_bounded_program = f'#const horizon={horizon}.\n{asp_planning_program}'''
 
         # Encode and solve
         control = clingo.Control()
