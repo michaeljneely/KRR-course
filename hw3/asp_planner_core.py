@@ -29,19 +29,33 @@
     2. Converts the pseudo-PDDL description to ASP facts in a manner similar to the 'translate' feature of plasp
     3. Finds the optimal (shortest) plan by progressively incrementing the horizon from t = [1, t_max] (inclusive)
     4. Returns the optimal plan or None if no solution is found in the range [1, t_max]
+
+    Example Input:
+        initial: (At(C1, SFO) & At(C2, JFK) & At(P1, SFO) & At(P2, JFK) & Cargo(C1) & Cargo(C2) & Plane(P1) & Plane(P2)
+                 & Airport(SFO) & Airport(JFK))
+        goals: (At(C1, JFK) & At(C2, SFO))
+        action: Load(c, p, a); (At(c, a) & At(p, a) & Cargo(c) & Plane(p) & Airport(a)); (Contains(c, p) & ~At(c, a))
+        action: Unload(c, p, a); (Contains(c, p) & At(p, a) & Cargo(c) & Plane(p) & Airport(a)); (At(c, a)
+                & ~Contains(c, p))
+        action: Fly(p, f, to); (At(p, f) & Plane(p) & Airport(f) & Airport(to)); (At(p, to) & ~At(p, f))
+        t_max: 10
+
+    Example Output:
+        ['Load(C2,P2,JFK)', 'Fly(P2,JFK,SFO)', 'Load(C1,P1,SFO)', 'Unload(C2,P2,SFO)', 'Fly(P1,SFO,JFK)',
+        'Unload(C1,P1,JFK)']
 """
 
 # Standard library
 import collections
 import itertools
 import re
-from typing import List, Tuple, Union
-
-# Local imports
-from planning import PlanningProblem, Action, Expr
+from typing import Dict, List, Tuple, Union
 
 # External imports
 import clingo
+
+# Local imports
+from planning import PlanningProblem, Action, Expr
 
 ###
 ### Helper functions
@@ -53,7 +67,7 @@ def init_sequential_planning_program() -> str:
     https://github.com/potassco/plasp/blob/master/encodings/sequential-horizon.lp
 
     All credit goes to the plasp authors. My only contribution is minor simplification and
-    explaining each group of statements in detail
+    explanation of each group of statements in detail
 
     :return: Initialized ASP sequential planning program, ready to be extended with facts from a planning problem
     :rtype: str
@@ -61,7 +75,7 @@ def init_sequential_planning_program() -> str:
     # We reason about the state of the world at particular time steps: [0, t_max]
     seq_encoding = 'time(0..horizon).\n'
 
-    # Predicates contain values, which may be True or False
+    # Predicates evaluate to True or False
     seq_encoding += 'boolean(true).\n'
     seq_encoding += 'boolean(false).\n'
     # The contains/2 atom captures this relationship
@@ -129,26 +143,28 @@ def make_positive(expression: Expr) -> Expr:
 
 
 def is_variable(arg: Expr) -> bool:
-    """Check if an expressions' argument is a variable. In the psuedo-PDDL description used in this assignment
+    """Check if an expression argument is a variable. In the psuedo-PDDL description used in this assignment
      variables are lower case and constants/predicates are upper case
 
     :param arg: An expression argument
-    :type arg: Expr 
+    :type arg: Expr
     :return: True if the argument is a variable, False otherwise
     :rtype: bool
     """
     return str(arg)[0].islower()
 
 
-def extract_constants_and_predicates(planning_problem: PlanningProblem) -> Tuple[List[str], List[Tuple[str, int]]]:
+def extract_constants_and_predicates(planning_problem: PlanningProblem) -> Tuple[List[Expr],
+                                                                                 List[Tuple[Expr, int]],
+                                                                                 Dict[str, Expr]]:
     """Extract all unique constants and predicates from a planning problem
 
     :param planning_problem: A description of the initial state, action(s), and goal(s) of a planning problem
     :type planning_problem: PlanningProblem
-    :return: Constants as a list of strings and predicates as a list of (name, number of arguments) tuples
-    :rtype: Tuple[List[str], List[Tuple(str, int)]]
+    :return: Constants as a list of strings, predicates as a list of (name, number of arguments) tuples, a map of
+             constants per predicate.
+    :rtype: Tuple[List[Expr], List[Tuple[Expr, int]], Dict[str, Expr]]:
     """
-
     seen_predicates = set()
     seen_constants = set()
     constants_per_predicate = collections.defaultdict(list)
@@ -162,12 +178,10 @@ def extract_constants_and_predicates(planning_problem: PlanningProblem) -> Tuple
     all_predicates = initial_predicates + goal_predicates + precondition_predicates + postcondition_predicates
 
     for predicate in all_predicates:
-        # Note: in the psuedo-PDDL description used in this assignment variables are lower case
-        # and constants/predicates uppercase
-        if predicate.op not in seen_predicates and predicate.op[0].isupper():
+        if predicate.op not in seen_predicates and not is_variable(predicate.op):
             seen_predicates.add((predicate.op, len(predicate.args)))
         for arg in predicate.args:
-            if arg not in seen_constants and str(arg)[0].isupper():
+            if arg not in seen_constants and not is_variable(arg):
                 seen_constants.add(arg)
                 constants_per_predicate[predicate.op].append(arg)
 
@@ -188,7 +202,7 @@ def action_to_asp_facts(action: Action) -> str:
     arg_map = {}
     variable_counter = 1
     for arg in action.args:
-        if str(arg)[0].isupper():
+        if not is_variable(arg):
             arg_map[str(arg)] = f'constant("{str(arg)}")'
         else:
             arg_map[str(arg)] = f'X{variable_counter}'
@@ -207,7 +221,8 @@ def action_to_asp_facts(action: Action) -> str:
 
 
     # Declare the preconditions as:
-    #   precondition(action_signature, predicate((...)), value(...(predicate(()), true or false)) :- action(action((...))).
+    #   precondition(action_signature, predicate((...)), value(...(predicate(()), true or false))
+    #       :- action(action((...))).
     # And Effects as:
     #   effect(action_signature, predicate((...)), value(...(predicate(()), true or false)) :- action(action((...))).
     preconditions = [('precondition', p) for p in action.precond]
@@ -299,17 +314,18 @@ def planning_problem_to_asp_facts(planning_problem: PlanningProblem) -> str:
             else:
                 goal_args.append([f'constant("{arg}")'])
 
-        # If there is more than one possible assignment for a goal, declare the goal as a disjunct of all possible assignments
-        # TODO: is this correct?
+        # If there is more than one possible assignment for a goal, declare the goal as a disjunction of all possible
+        # assignments. Question for TA: is this correct?
         all_goals = []
+        boolean_value = "false" if positive_goal != goal else "true"
         for possible_assignment in itertools.product(*goal_args):
             variables = ', '.join(list(possible_assignment))
             if variables:
                 goal_predicate = f'predicate(("{positive_goal.op}", {variables}))'
-                goal_value = f'value(predicate(("{positive_goal.op}", {variables})), {"false" if positive_goal != goal else "true"})'
+                goal_value = f'value(predicate(("{positive_goal.op}", {variables})), {boolean_value})'
             else:
                 goal_predicate = f'predicate(("{positive_goal.op}"))'
-                goal_value = f'value(predicate(("{positive_goal.op}")), {"false" if positive_goal != goal else "true"})'
+                goal_value = f'value(predicate(("{positive_goal.op}")), {boolean_value})'
             all_goals.append(f'goal({goal_predicate}, {goal_value})')
         asp_facts += f'{"; ".join(all_goals)}.\n'
 
@@ -356,8 +372,6 @@ def solve_planning_problem_using_ASP(planning_problem: PlanningProblem, t_max: i
     facts = planning_problem_to_asp_facts(planning_problem)
 
     asp_planning_program = sequential_encoding + facts
-
-    print(asp_planning_program)
 
     # If an answer set is found, build the solution by extracting the occurs/2 atoms, sorting them by timestep, and
     # converting them to string expressions
