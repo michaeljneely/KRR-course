@@ -272,6 +272,15 @@ theory contain `forbidden(speeding)`, `forbidden(fraud)`,
 `should_not_do(speeding)` and `should_not_do(fraud)` and do not
 contain `allowed_to_do(fraud)` and `allowed_to_do(speeding)`.
 
+```
+W = {forbidden(speeding), forbidden(fraud)}
+D = {
+    emergency : T / can_save_lives(speeding)
+    can_save_lives(X) : T / allowed_to_do(X).
+    forbidden(X): ~allowed_to_do(X) / should_not_do(X)
+}
+```
+
 ### Exercise 2.3.d
 
 Model the above scenario of deontic reasoning using answer set programming.
@@ -288,9 +297,11 @@ contain `forbidden(speeding)`, `forbidden(fraud)`,
 contain `allowed_to_do(fraud)` and `allowed_to_do(speeding)`.
 
 ```
-forbidden(speeding;fraud).
-can_save_lives(speeding).
-allowed_to_do(X) :- emergency, can_save_lives(X).
+forbidden(speeding).
+forbidden(fraud).
+
+can_save_lives(speeding) :- emergency.
+allowed_to_do(X) :- forbidden(X), can_save_lives(X).
 should_not_do(X) :- forbidden(X), not allowed_to_do(X).
 ```
 ---
@@ -326,7 +337,8 @@ In ASP:
 p_p :- not p_not_p.
 p_q :- not p_not_q.
 p_r :- not p_not_r.
-p_not_q, p_not_r :- p_p.
+p_not_p ; p_not_q.
+p_not_p ; p_not_r.
 ```
 
 Which yields two answer sets (extensions): `p, ~q, r` and `p, ~r, q`

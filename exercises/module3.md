@@ -35,6 +35,22 @@ if and only if &varphi; is satisfiable.
 and clauses *c<sub>1</sub>,...,c<sub>m</sub>*, create a planning problem that uses
 propositions `X(1),...,X(n),Y(1),...,Y(n),C(1),...,C(m)`.
 
+For each i, have two actions:
+
+- MakeTrue(i), with precondition: ~X(i) & ~Y(i), effect: X(i)
+- MakeFalse(i), with precondition: ~X(i) & ~Y(i), effect: Y(i)
+
+For each literal l in clause j:
+
+- if l is a positive literal x_i, then have an action SatisfyClause(l,j), with precondition X(i), and effect: C(j)
+- if l is a negative literal ~x_i, then have an action SatisfyClause(l,j), with precondition Y(i), and effect C(j)
+
+Initial state: \emptyset
+
+Goal: C(1) & ... & C(m)
+
+Then you can argue that there is a sequence of actions that leads to the goal if and only if there is a truth assignment that makes the formula with clauses c_1, …, c_m true.
+
 ---
 
 ## Exercise 3.2: Modelling
@@ -63,6 +79,19 @@ The goal is to have delivered exactly package at each delivery location.
 Show how to model this scenario in the PDDL planning language
 (as used in [[Russell, Norvig, 2016]](https://github.com/rdehaan/KRR-course#aima)).
 
+```
+# Initial state
+initial: (At(W1, 0, 0) & At(D1, 0, 0) & At(D2, 0, 1) & At(L1, 1, 2) & At(L2, 2, 1) & At(L3, 3, 3) & Cell(0, 0) & Cell(0, 1) & Cell(0, 2) & Cell(0, 3) & Cell(1, 0) & Cell(1, 1) & Cell(1, 2) & Cell(1, 3) & Cell(2, 0) & Cell(2, 1) & Cell(2, 2) & Cell(2, 3) & Cell(3, 0) & Cell(3, 1) & Cell(3, 2) & Cell(3, 3) & Drone(D1) & Drone(D2) & Location(L1) & Location(L2) & Location(L3))
+# Goals
+goals: (Delivered(L1) & Delivered(L2) & Delivered(L3))
+# Action Load(d, r, c)
+action: Load(d, r, c); (At(d, r, c) & At(W1, r, c) & Drone(d) & ~Full(d)); (Full(d))
+# Action Unload(d, l, r, c)
+action: Unload(d, l, r, c); (At(d, r, c) & At(l, r, c) & Drone(d) & Location(l) & Full(d) & ~Delivered(l)); (Delivered(l) & ~Full(d))
+# Action FlyDown(d1, d2, r, c)
+action: FlyDown(d1, d2, r, c); (At(d1, r, c) & ~At(d2, r + 1, c) & Cell(r + 1, c) & Drone(d1) & Drone(d2)); (At(d1, r + 1, c) & ~At(d1, r, c))
+... Same idea for FlyUp, FlyLeft, FlyRight
+```
 ---
 
 ## Exercise 3.3: Planning with two (or more) goals
@@ -92,6 +121,8 @@ if and only if for the 'double-goal' planning problem there exists a sequence of
 - Add actions that can be used to make these statements true (under the right conditions).
 - Specify the 'unified' goal *G* using these statements `Achieved(Goal1)` and `Achieved(Goal2)`.
 
+Answer: add an AchieveGoalX action per goal, with preconditions equivalent to the preconditions of that goal and an effect Achieved(GoalX).
+
 ### Exercise 3.3.b
 
 Consider the same question as in Exercise 3.3.a, with the difference that *G<sub>1</sub>*
@@ -109,9 +140,12 @@ Show how you can model this scenario with two goal specifications,
 *G<sub>1</sub>* and *G<sub>2</sub>*,
 in the classical setting with only one goal specification *G*.
 
+Answer: Extend 3.3.a by simply adding Achieved(Goal1) as a precondition to the AchieveGoal2 action.
 ### Exercise 3.3.c
 
 Consider the questions of Exercises 3.3.a and 3.3.b,
 but then generalized to more than two goals: *G<sub>1</sub>, ..., G<sub>k</sub>*.
 Show how to answer the questions of Exercises 3.3.a and 3.3.b
 for an arbitrary number *k* of goal specifications.
+
+Answer: Extend as per 3.3.a and 3.3.b, where, for every goal_i, add a precondition specifying that every goal from goal_1..goal_i-1 should be achieved.
