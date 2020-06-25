@@ -35,6 +35,77 @@ with only using unit propagation and pure literal elimination
 (~x4 OR ~x5 OR x6 OR ~x7 OR x8 OR x9)
 ```
 
+**Answer**:
+
+With the DPLL algorithm, the given logic formula can be proven satisfiable through repeated application of pure literal elimination and unit propagation.
+
+Iter 1: `x2` is a pure literal. Set `x2=True` and remove all clauses containing `x2`
+
+```
+(~x4 OR ~x5 OR ~x6)
+(x4)
+(~x4 OR x5)
+(x7 OR x10)
+(~x5 OR ~x7 OR ~x8)
+(~x10)
+(~x4 OR ~x5 OR x6 OR ~x7 OR x8 OR x9)
+```
+
+Iter 1: `x4` is a unit clause. Set `x4=True` and propagate:
+
+```
+(~x5 OR ~x6)
+(x5)
+(x7 OR x10)
+(~x5 OR ~x7 OR ~x8)
+(~x10)
+(~x5 OR x6 OR ~x7 OR x8 OR x9)
+```
+
+Iter 1: `x9` is a pure literal. Set `x9=True` and remove all clauses containing `x9`
+
+```
+(~x5 OR ~x6)
+(x5)
+(x7 OR x10)
+(~x5 OR ~x7 OR ~x8)
+(~x10)
+```
+
+Iter 2: `x5` is a unit clause. Set `x5=True` and propagate:
+
+```
+(~x6)
+(x7 OR x10)
+(~x7 OR ~x8)
+(~x10)
+```
+
+Iter 3: `~x8` is a pure literal. Set `x8=False` and remove all clauses containing `~x8`:
+
+```
+(~x6)
+(x7 OR x10)
+(~x10)
+```
+
+Iter 3: `x7` is a unit clause. Set `x7=True` and propagate:
+
+```
+(~x6)
+(~x10)
+```
+
+Iter 4: `~x6` is a pure literal. Set `x6=False` and remove all clauses containing `~x6`:
+
+```
+(~x10)
+```
+
+Iter 4: `~x10` is a unit clause. Set `x10=False` and propagate.
+
+No clauses remain. &varphi; is satisfied and no branching was required.
+
 ---
 
 ## Exercise 1.2: Resolution
@@ -58,6 +129,34 @@ where &varphi; and &psi; are the following propositional formulas.
 (~x1 OR ~x2 OR ~x3 OR x4)
 ```
 
+**Answer**:
+
+Iter 1: Resolving each pair yields:
+
+```
+(x1 OR x2 OR x4)
+(x1 OR ~x2 OR x4)
+(~x1 OR x2 OR x4)
+(~x1 OR ~x2 OR x4)
+```
+
+Iter 2: Resolving each pair yields:
+
+```
+(x1 OR x4)
+(~x1 or x4)
+```
+
+Iter 3: Resolving each pair yields:
+
+```
+(x4)
+```
+
+Thus &varphi; resolves to `x4`.
+
+We prove &varphi; &models; &psi; via contradiction, showing the unsatisfiability of: &varphi; AND  ~&psi;. Clearly `x4 AND ~x4` is unsatisfiable, therefore  &varphi; &models; &psi;.
+
 ---
 
 ## Exercise 1.3: Encoding 3SAT
@@ -77,6 +176,15 @@ that takes as input a 3CNF formula &varphi;,
 and that produces an integer linear program *P* that has a feasible
 solution if and only if &varphi; is satisfiable.
 
+**Answer**:
+
+Algorithm:
+
+- Map every literal xi to a integer variable zi with domain 0 &leq; zi &leq; 1
+- Turn every clause into a linear constraint ... > 0,  replacing ~zi with (1 - zi), and binary OR with (+) (E.g., `x1 OR ~x2 OR ~x7` becomes `z1 + (1 - z2) + (1 - z7) > 0`)
+
+The two problems are now equivalent: there's an integer solution to this ILP if and only if there's a boolean solution to the original 3SAT problem.
+
 ---
 
 ## Exercise 1.4: CSP with binary variables and AllDifferent constraints
@@ -93,6 +201,8 @@ for each *1 &leq; i < j &leq; n* it holds that *v<sub>i</sub> &ne; v<sub>j</sub>
 Show that there is an efficient (polynomial-time) algorithm that for each
 CSP instance *I* that adheres to these restrictions decides whether or not *I*
 has a solution&mdash;and if *I* has a solution, it outputs a solution for *I*.
+
+**Answer**: Since each variable has a binary domain, this can be solved using an arc-consistency algorithm such as AC-3 which is runs in linear time with respect to the number of constraints (O(cd^3) = O(8c) = O(c)). Of course, we can add the additional check that any AllDiff constraint with more than 2 variables immediately results in an unsatisfiable problem. After we reduce the search space to 2-consistent, we can search for a solution in time O(n^2d) = O(2n^2) = O(n^2) time.
 
 ---
 
@@ -118,6 +228,52 @@ and that produces an answer set program *P* whose optimal answer sets
 correspond exactly to the truth assignments &alpha; that satisfy a maximal
 number of clauses of &varphi;.
 
+```clingo
+false(X) :- true(neg(X)).
+true(X) :- false(neg(X)).
+true(X) :- true(pos(X)).
+false(X) :- false(pos(X)).
+
+false(X); true(X) :- literal(X).
+
+
+unsat :- false(X), false(Y), conjunct(X, Y).
+unsat :- false(X), true(Y), conjunct(X, Y).
+unsat :- true(X), false(Y), conjunct(X, Y).
+unsat :- false(X), false(Y), disjunct(X, Y).
+
+:- unsat.
+
+#maximize {1, X : true(X)}.
+
+#show true/1.
+#show false/1.
+```
+
+When combined with the example:
+
+```
+% model ~a ^ b ^ (~c v d)
+
+neg(a).
+neg(c).
+pos(b).
+pos(d).
+
+literal(neg(a)).
+literal(pos(b)).
+literal(neg(c)).
+literal(pos(d)).
+
+disjunct(neg(c), pos(d)).
+conjunct(neg(a), pos(b)).
+conjunct(pos(b), disjunct(neg(c), pos(d))).
+```
+
+Yields:
+
+`true(d) true(b) false(c) false(a)`
+
 ---
 
 ## Exercise 1.6
@@ -138,3 +294,7 @@ x3 <= 1
 2*x1 + 3*x2 + 5*x3 <= 6
 2*x1 + 3*x2 + 5*x3 >= 6
 ```
+
+**Answer**:
+
+This program is only satisfied when 2*x1 + 3*x2 + 5*x3 = 6.  Clearly there is no satisfying assignment of x1, x2, and 3 with domains {0, 1}, but there is at least one satisfying non-integer assignment (x1 = 1, x2 = x3 = 0.5).
