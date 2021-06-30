@@ -39,6 +39,8 @@ a :- c.
 c :- a.
 ```
 
+These are the same programs, while *P<sub>1</sub>* implies `a :- c`, *P<sub>2</sub>* explicitly declares it. Since they are the same program, they will have the same answer sets.
+
 ### Exercise 2.1.b
 
 Consider the following two logic programs *P<sub>1</sub>* and *P<sub>2</sub>*.
@@ -60,6 +62,8 @@ The program *P<sub>2</sub>*:
 b :- a.
 :- not b.
 ```
+
+These programs are not equivalent and, therefore, not strongly equivalent.
 
 ### Exercise 2.1.c
 
@@ -85,6 +89,8 @@ b :- not a.
 :- b.
 ```
 
+Both programs are unsatisfiable. They have no answer sets and are therefore strongly equivalent.
+
 ### Exercise 2.1.d
 
 Let *P<sub>1</sub>* and *P<sub>2</sub>* be two logic programs
@@ -98,6 +104,20 @@ and *P<sub>2</sub> &cup; Q<sub>2</sub>*
 are strongly equivalent.
 
 ---
+Denoting A(X) as the answer sets of program X:
+
+Since P1 and P2 are strongly equivalent: `A(S U P1) = A(S U P2)` for any logic program S. Also, `A(S U Q1) = S(U Q2)`.
+
+We are asked to show `A(S U P1 U Q1) = A(S U P2 U Q2)`.
+
+```
+A(S U P1 U Q1)
+= A((S U P1) U Q1) (Associativity of Union)
+= A(S U P2 U Q1) (Substitution)
+= A(P2 U (S U Q1)) (Commutativity of Union)
+= A(P2 U S U Q2) (Substitution)
+= A(S U P2 U Q2) (QED)
+```
 
 ## Exercise 2.2
 
@@ -105,17 +125,66 @@ are strongly equivalent.
 
 Give a logic program *P* that has exactly 1024 answer sets.
 
+```
+item(1..1024).
+1{choice(X): item(X)}1.
+
+#show choice/1.
+```
+
 ### Exercise 2.2.b
 
 Give a logic program *P* that has exactly 1000 answer sets.
+
+```
+item(1..1000).
+1{choice(X): item(X)}1.
+
+#show choice/1.
+```
 
 ### Exercise 2.2.c
 
 Give a default theory *(W,D)* that has exactly 1024 extensions.
 
+You can replicate binary choices for k numbers by defining two rules:
+
+T : p_i / p_i
+T : ~p_i / ~p_i
+
+for i = 1..k
+
+There are 1024 possibilities for 10 binary choices (2^10). So we would have twenty total default theories:
+
+T : p_1 / p_1
+T : ~p_1 / ~p_1
+...
+T : p_10 / p_10
+T : ~p_10 / ~p_10
+
 ### Exercise 2.2.d
 
 Give a default theory *(W,D)* that has exactly 1000 extensions.
+
+For any positive integer N, and positive integers a and b such that a^b = N, we can define a*b default theories with exactly N extensions.
+
+Each rule_i,j is defined as T: (~p_i_j, ... for all i, j such that i &ne; j) / p_i_j for i=1..a, j=1..b
+
+In the case N=1000, then a=3, b=10:
+
+So we have rules:
+
+T : ~x_1_2, ... , ~x_1_10 / x_1_1
+....
+T: ~x_3_1, ... , ~x_3_9 / x_3_10
+
+In Answer Set Programming the rules becomes:
+
+```
+x_1_1 :- not x_1_2, ..., x_1_10.
+...
+x_3_1 :- not x_3_1, ..., x_3_9.
+```
 
 ---
 
@@ -145,6 +214,15 @@ theory contain `convicted`.
 - Together with *W = {`committed_murder`,`immunity`}*, all extensions of the resulting default
 theory contain `convicted`.
 
+```
+D = {
+    committed_murder : T / committed_crime
+    committed_theft : T / committed_crime
+    immunity : ~committed_murder / exception
+    committed_crime : ~exception / convicted
+}
+```
+
 ### Exercise 2.3.b
 
 Model the above scenario of legal reasoning using answer set programming.
@@ -155,6 +233,14 @@ That is, construct a logic program *P*, so that:
 - All answer sets of *P &cup; {`committed_theft.`,`immunity.`}* do not contain `convicted`.
 - All answer sets of *P &cup; {`committed_murder.`}* contain `convicted`.
 - All answer sets of *P &cup; {`committed_murder.`,`immunity.`}* contain `convicted`.
+
+2.3.a directly translated to ASP:
+```
+commited_crime :- committed_theft
+committed_crime :- commited_murder
+exception :- immunity, not commited_murder
+convicted :- commited_crime, not exception
+```
 
 ### Exercise 2.3.c
 
@@ -186,6 +272,15 @@ theory contain `forbidden(speeding)`, `forbidden(fraud)`,
 `should_not_do(speeding)` and `should_not_do(fraud)` and do not
 contain `allowed_to_do(fraud)` and `allowed_to_do(speeding)`.
 
+```
+W = {forbidden(speeding), forbidden(fraud)}
+D = {
+    emergency : T / can_save_lives(speeding)
+    can_save_lives(X) : T / allowed_to_do(X).
+    forbidden(X): ~allowed_to_do(X) / should_not_do(X)
+}
+```
+
 ### Exercise 2.3.d
 
 Model the above scenario of deontic reasoning using answer set programming.
@@ -201,6 +296,14 @@ contain `forbidden(speeding)`, `forbidden(fraud)`,
 `should_not_do(speeding)` and `should_not_do(fraud)` and do not
 contain `allowed_to_do(fraud)` and `allowed_to_do(speeding)`.
 
+```
+forbidden(speeding).
+forbidden(fraud).
+
+can_save_lives(speeding) :- emergency.
+allowed_to_do(X) :- forbidden(X), can_save_lives(X).
+should_not_do(X) :- forbidden(X), not allowed_to_do(X).
+```
 ---
 
 ## Exercise 2.4
@@ -212,6 +315,16 @@ and *D = { `T : p / ~q`, `T : q / ~r`, `T : r / ~s` }*
 (where `~` denotes negation)
 has exactly one extension.
 
+This corresponds to the following logic program in ASP:
+
+```
+p_not_q :- not p_not_p.
+p_not_r :- not p_not_q.
+p_not_s :- not p_not_r.
+```
+
+Which yields exactly one answer set (extension): `~q, ~s`
+
 ### Exercise 2.4.b
 
 What extensions does the default theory *(W,D)* with *W = { `p -> (~q & ~r)` }*
@@ -219,9 +332,34 @@ and *D = { `T : p / p`, `T : q / q`, `T : r / r` }*
 (where `~` denotes negation, `&` denotes conjunction, and `->`
 denotes logical implication) have?
 
+In ASP:
+```
+p_p :- not p_not_p.
+p_q :- not p_not_q.
+p_r :- not p_not_r.
+p_not_p ; p_not_q.
+p_not_p ; p_not_r.
+```
+
+Which yields two answer sets (extensions): `p, ~q, r` and `p, ~r, q`
+
 ### Exercise 2.4.c
 
 Show that the default theory *(W,D)* with *W = { `p` }*
 and *D = { `p : r / q`, `p : s / ~q` }*
 (where `~` denotes negation)
 has no extensions.
+
+In ASP:
+
+```
+:- literal(X), not_literal(X).
+
+literal(p).
+
+literal(q) :- literal(p), not not_literal(r).
+
+not_literal(q) :- literal(p), not not_literal(s).
+```
+
+This program is unsatisfiable and therefore has no extensions.
