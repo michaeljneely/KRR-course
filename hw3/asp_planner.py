@@ -49,9 +49,8 @@ def main():
     if verbose:
         print("Solving planning problem using ASP encoding..")
         timer.start()
-    with suppress_stdout_stderr():
-        planning_problem_copy = deepcopy(planning_problem)
-        plan = solve_planning_problem_using_ASP(planning_problem_copy,t_max)
+    plan = solve_planning_problem_using_ASP(planning_problem,t_max)
+    # with suppress_stdout_stderr():
     if verbose:
         timer.stop()
 
